@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from smartrouter import install as installer
 from smartrouter.cli import app
 from smartrouter.install import Entries, apply, remove, router_entries
 
@@ -144,3 +145,16 @@ def test_hook_command_is_nonblocking_when_script_is_missing() -> None:
 def test_help_works() -> None:
     for args in (["--help"], ["serve", "--help"]):
         assert runner.invoke(app, args).exit_code == 0
+
+
+def test_install_refuses_a_missing_project_or_a_claude_file(tmp_path: Path) -> None:
+    missing = tmp_path / "nope"
+    with pytest.raises(installer.InstallError, match="not an existing directory"):
+        installer.install(missing, tmp_path, 8787, tmp_path / "m")
+    assert not missing.exists()
+    project = tmp_path / "p"
+    project.mkdir()
+    (project / ".claude").write_text("x")
+    with pytest.raises(installer.InstallError, match="is not a directory"):
+        installer.install(project, tmp_path, 8787, tmp_path / "m")
+    assert (project / ".claude").read_text() == "x"

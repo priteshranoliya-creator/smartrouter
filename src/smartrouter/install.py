@@ -116,6 +116,14 @@ def _settings_path(project: Path) -> Path:
     return project / ".claude" / "settings.local.json"
 
 
+def _check_project(project: Path) -> None:
+    if not project.is_dir():
+        raise InstallError(f"{project} is not an existing directory")
+    claude_dir = project / ".claude"
+    if claude_dir.exists() and not claude_dir.is_dir():
+        raise InstallError(f"{claude_dir} exists but is not a directory")
+
+
 def manifest_path(project: Path, manifest_dir: Path) -> Path:
     digest = hashlib.sha256(str(project).encode()).hexdigest()[:16]
     return manifest_dir / f"{digest}.json"
@@ -155,6 +163,7 @@ def install(
     force: bool = False,
 ) -> str:
     project = project.resolve()
+    _check_project(project)
     path = _settings_path(project)
     entries = router_entries(root, port)
     existed = path.is_file()
