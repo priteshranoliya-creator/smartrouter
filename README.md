@@ -26,6 +26,8 @@ Configuration lives in `config/` (`router.yaml`, `questions.yaml`, `pricing.yaml
 
 Opt a project in with `uv run router install --project PATH` (and `uninstall` to undo), run `uv run router serve`, and export data with `uv run router export --since 7d`.
 
+On macOS, `uv run router service install` runs the router as a launchd agent that starts at login and restarts if it exits (`service status` shows the agent and `/healthz`, `service uninstall` removes it; logs in `data/logs/`). launchd agents get no access to `~/Desktop`, `~/Documents` or `~/Downloads`, so keep the repo elsewhere or grant the venv's Python Full Disk Access.
+
 ## Evaluate
 
 The golden set lives in `data/golden/golden.jsonl` (one JSON object per line: prompt, context, reference answer, 2-5 rubric points, expected tier, train/test split). It is git-ignored because it is built from real prompts; bring your own file in that format (see `tests/fixtures/golden_small.jsonl`).

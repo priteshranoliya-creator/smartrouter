@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -20,6 +21,7 @@ from smartrouter.eval.calibrate import CalibrationRun
 from smartrouter.eval.dataset import DatasetError, GoldenItem, Report, load_dataset, validate
 from smartrouter.eval.router_arm import RouterArm
 from smartrouter.policy.rules import PolicyContext
+from smartrouter.service import Service, ServiceError
 from smartrouter.settings import ROOT, load_settings
 from smartrouter.telemetry import stats
 from smartrouter.telemetry.export import write_csv
@@ -36,6 +38,8 @@ DEFAULT_DATASET = ROOT / "data/golden/golden.jsonl"
 
 eval_app = typer.Typer(help="Golden dataset and eval runs.", no_args_is_help=True)
 app.add_typer(eval_app, name="eval")
+service_app = typer.Typer(help="Run the router at login as a launchd agent (macOS).", no_args_is_help=True)
+app.add_typer(service_app, name="service")
 
 
 @app.command()
@@ -92,6 +96,44 @@ def export(
     else:
         with out.open("w", newline="") as handle:
             write_csv(rows, handle)
+
+
+def _service_call(action: Callable[[], str]) -> None:
+    try:
+        typer.echo(action())
+    except ServiceError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@service_app.command("install")
+def service_install() -> None:
+    """Install and start the agent; it restarts after a crash or a reboot."""
+    _service_call(Service().install)
+
+
+@service_app.command("uninstall")
+def service_uninstall() -> None:
+    """Stop the agent and remove its plist."""
+    _service_call(Service().uninstall)
+
+
+@service_app.command("status")
+def service_status() -> None:
+    """Whether the agent is loaded, and the router's /healthz."""
+    try:
+        loaded = Service().loaded()
+    except ServiceError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    server = load_settings().router.server
+    try:
+        health = httpx.get(f"http://{server.host}:{server.port}/healthz", timeout=5).text
+    except httpx.HTTPError as exc:
+        health = f"unreachable ({type(exc).__name__})"
+    typer.echo(f"agent: {'loaded' if loaded else 'not loaded'}\nhealthz: {health}")
+    if not loaded:
+        raise typer.Exit(1)
 
 
 def _load_items(dataset: Path, tiers: list[str]) -> list[GoldenItem]:
