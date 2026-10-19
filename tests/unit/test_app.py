@@ -21,5 +21,14 @@ def test_startup_creates_a_migrated_db_and_serves_healthz(tmp_path: Path) -> Non
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
     tables = {r[0] for r in sqlite3.connect(db).execute("select name from sqlite_master where type='table'")}
-    expected = {"sessions", "turns", "decisions", "requests", "compactions", "eval_runs", "eval_results"}
+    expected = {
+        "sessions",
+        "session_models",
+        "turns",
+        "decisions",
+        "requests",
+        "compactions",
+        "eval_runs",
+        "eval_results",
+    }
     assert expected <= tables
