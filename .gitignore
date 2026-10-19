@@ -3,10 +3,8 @@
 .env.*
 !.env.example
 
-# runtime data (golden set is versioned)
-data/*
-!data/golden/
-!data/golden/**
+# runtime data; the golden set stays local while the repo is public (tdd-changes #25)
+data/
 
 # python
 .venv/
