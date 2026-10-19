@@ -49,6 +49,16 @@ BASE: dict[str, Any] = {
         "rejudge_fraction": 0.1,
         "arms": {"opus": "m-opus", "gemini-pro": "m-gemini"},
     },
+    "review": {
+        "baseline_arm": "opus",
+        "min_cost_reduction": 0.3,
+        "min_quality_ratio": 0.95,
+        "min_payback_share": 0.8,
+        "max_added_latency_p50_ms": 300,
+        "min_logged_share": 1.0,
+        "min_shadow_days": 7,
+        "min_shadow_turns": 50,
+    },
 }
 
 
@@ -273,3 +283,9 @@ def test_router_upstream_url_env_override() -> None:
 def test_bad_router_upstream_url_names_the_env_var() -> None:
     with pytest.raises(ConfigError, match="env ROUTER_UPSTREAM_URL: upstream.anthropic_url"):
         load_settings(env={"ROUTER_UPSTREAM_URL": "not a url"})
+
+
+def test_unknown_review_baseline_arm_is_rejected(tmp_path: Path) -> None:
+    config = write_config(tmp_path, mutated(BASE, "review.baseline_arm", "nope"))
+    with pytest.raises(ConfigError, match=r"review\.baseline_arm: unknown arm 'nope'"):
+        load_settings(config, env={})

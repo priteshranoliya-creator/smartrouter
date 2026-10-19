@@ -51,3 +51,13 @@ eval:
     gemini-argon: gemini-4-argon
     gemini-flash: gemini-3.8-flash
     gemini-flash-lite: gemini-3.1-flash-lite # cheapest; no thinking tokens
+
+review: # T6.1 go/no-go targets from TDD section 1, checked by `router review`
+  baseline_arm: opus # eval arm the router is compared with ("all-Opus baseline")
+  min_cost_reduction: 0.30 # router golden-set cost at least 30% below the baseline
+  min_quality_ratio: 0.95 # router judged quality at least 95% of the baseline's
+  min_payback_share: 0.80 # switches whose switch tax was recovered within the session
+  max_added_latency_p50_ms: 300 # wait added to the first request of a prompt by the decision
+  min_logged_share: 1.0 # proxied requests with usage and cost logged
+  min_shadow_days: 7 # "shadow-week": span of shadow decisions before the review counts
+  min_shadow_turns: 50 # and enough real turns for the shares to mean something

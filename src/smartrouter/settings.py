@@ -123,6 +123,19 @@ class EvalConfig(_Frozen):
     router_fallback_tier: NonEmpty = "sonnet"  # tier the router arm serves when the policy abstains
 
 
+class ReviewConfig(_Frozen):
+    """T6.1 go/no-go targets (TDD section 1), checked by `router review`."""
+
+    baseline_arm: NonEmpty
+    min_cost_reduction: Probability
+    min_quality_ratio: Annotated[float, Field(gt=0)]
+    min_payback_share: Probability
+    max_added_latency_p50_ms: Annotated[float, Field(gt=0)]
+    min_logged_share: Probability
+    min_shadow_days: Annotated[float, Field(ge=0)]
+    min_shadow_turns: Annotated[int, Field(ge=0)]
+
+
 class RouterConfig(_Frozen):
     mode: Mode
     server: ServerConfig
@@ -132,6 +145,7 @@ class RouterConfig(_Frozen):
     decision: DecisionConfig
     policy: PolicyConfig
     eval: EvalConfig
+    review: ReviewConfig
 
 
 class Question(_Frozen):
@@ -193,11 +207,14 @@ def tier_issues(router: RouterConfig) -> list[Issue]:
 
 def arm_issues(router: RouterConfig) -> list[Issue]:
     known = ", ".join(sorted(router.eval.arms))
-    return [
+    issues = [
         (f"eval.{field}", f"unknown arm {getattr(router.eval, field)!r} (known: {known})")
         for field in ("judge", "rejudge_arm")
         if getattr(router.eval, field) not in router.eval.arms
     ]
+    if router.review.baseline_arm not in router.eval.arms:
+        issues.append(("review.baseline_arm", f"unknown arm {router.review.baseline_arm!r} (known: {known})"))
+    return issues
 
 
 def question_issues(router: RouterConfig, questions: Mapping[str, Question]) -> list[Issue]:

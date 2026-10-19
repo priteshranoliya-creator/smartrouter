@@ -38,6 +38,7 @@ uv run router eval smoke --item g-0007         # one item through every arm
 uv run router eval calibrate                   # fit the engine's temperature on train, report on test
 uv run router eval run --split test            # every arm + router + oracle, judged by Gemini Argon
 uv run router eval report                      # latest run: arm table, routing matrix, judge agreement
+uv run router review                           # T6.1 go/no-go: shadow data + latest run vs the section 1 targets
 ```
 
 Claude arms run through `claude -p` with your Claude Code login; Gemini arms and the judge need `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in `.env`. Reports land in `data/reports/`, and the dashboard's Eval panel shows the same numbers.

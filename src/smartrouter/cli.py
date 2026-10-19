@@ -98,6 +98,46 @@ def export(
             write_csv(rows, handle)
 
 
+@app.command()
+def review(
+    run: Annotated[int | None, typer.Option("--run", help="Eval run id (default: the latest run).")] = None,
+) -> None:
+    """T6.1 go/no-go: shadow data and the eval run against the section 1 targets.
+
+    Prints the review, writes data/reports/review.md, and exits 1 on NO-GO.
+    """
+    from smartrouter import review as go_no_go
+    from smartrouter.eval.report import routing, summarize
+
+    settings = load_settings()
+    db = settings.path("db")
+    if not db.exists():
+        typer.echo(f"error: no database at {db}", err=True)
+        raise typer.Exit(1)
+    with Repo.open(db) as repo:
+        chosen = repo.get_eval_run(run) if run is not None else next(iter(repo.list_eval_runs()), None)
+        if run is not None and chosen is None:
+            typer.echo(f"error: no eval run {run}", err=True)
+            raise typer.Exit(2)
+        results = repo.list_eval_results(chosen.id) if chosen and chosen.id is not None else []
+        targets = settings.router.review
+        result = go_no_go.review(
+            facts=repo.decision_facts(),
+            rows=repo.request_rows(),
+            summaries=summarize(results),
+            routing=routing(results, list(settings.router.tiers)) if results else None,
+            eval_run_id=None if chosen is None else chosen.id,
+            targets=targets,
+        )
+    text = go_no_go.render(result, targets)
+    reports = settings.path("reports")
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / "review.md").write_text(text, encoding="utf-8")
+    typer.echo(text)
+    if not (result.go and result.coverage.enough(targets)):
+        raise typer.Exit(1)
+
+
 def _service_call(action: Callable[[], str]) -> None:
     try:
         typer.echo(action())
