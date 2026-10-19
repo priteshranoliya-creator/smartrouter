@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smartrouter.local</title>
+<script>
+try { var t = localStorage.getItem("smartrouter-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+      </span>
+      <span class="brand-name">smartrouter<span class="muted">.local</span></span>
+    </div>
+
+    <label class="search">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="search" type="search" placeholder="Filter prompts" autocomplete="off" aria-label="Filter the live feed by prompt text">
+      <kbd>Ctrl K</kbd>
+    </label>
+
+    <nav class="nav" aria-label="Main">
+      <a class="nav-item active" href="#top">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+        <span>Dashboard</span>
+      </a>
+      <a class="nav-item" href="#panel-feed">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Sessions</span><span class="count" id="nav-sessions">0</span>
+      </a>
+      <a class="nav-item" href="#panel-ledger">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>
+        <span>Switches</span><span class="count" id="nav-switches">0</span>
+      </a>
+    </nav>
+
+    <div class="section-label">Panels</div>
+    <nav class="nav small" aria-label="Panels">
+      <a class="nav-item" href="#panel-feed"><span>Live turn feed</span><span class="count" id="nav-feed">0</span></a>
+      <a class="nav-item" href="#panel-spend"><span>Spend vs baseline</span></a>
+      <a class="nav-item" href="#panel-ledger"><span>Switch ledger</span><span class="count" id="nav-ledger">0</span></a>
+      <a class="nav-item" href="#panel-cache"><span>Cache health</span></a>
+      <a class="nav-item" href="#panel-mix"><span>Model mix</span><span class="count" id="nav-mix">0</span></a>
+      <a class="nav-item" href="#panel-quality"><span>Decision quality</span><span class="count" id="nav-quality">0</span></a>
+    </nav>
+
+    <div class="section-label">Resources</div>
+    <nav class="nav small" aria-label="Resources">
+      <a class="nav-item" href="/healthz" target="_blank" rel="noopener"><span>Health</span></a>
+      <a class="nav-item" href="https://github.com/priteshranoliya-creator/smartrouter/blob/main/docs/tdd-changes.md" target="_blank" rel="noopener"><span>Design changes</span></a>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="section-label flush">Mode</div>
+      <div class="segmented" id="mode-switch" role="group" aria-label="Routing mode">
+        <button type="button" data-mode="off">off</button>
+        <button type="button" data-mode="shadow">shadow</button>
+        <button type="button" data-mode="active" disabled aria-disabled="true" title="Available after the T6.1 go/no-go review">active</button>
+      </div>
+      <p class="mode-msg" id="mode-msg" role="status" hidden></p>
+    </div>
+  </aside>
+
+  <div class="main" id="top">
+    <header class="topbar">
+      <h2>Dashboard</h2>
+      <div class="topbar-right">
+        <span class="live off" id="live" title="Stream disconnected"><i></i><span id="live-label">offline</span></span>
+        <div class="segmented compact" id="window-switch" role="group" aria-label="Time window">
+          <button type="button" data-window="15m">15m</button>
+          <button type="button" data-window="1h">1h</button>
+          <button type="button" data-window="24h">24h</button>
+          <button type="button" data-window="7d">7d</button>
+          <button type="button" data-window="all">all</button>
+        </div>
+        <button type="button" class="icon-btn" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="content">
+      <section class="hero">
+        <div class="hero-text">
+          <h1 id="headline"><span id="headline-a">Waiting for the first routed turn</span><span id="headline-b"></span></h1>
+          <p id="hero-sub" class="lede"></p>
+        </div>
+        <div class="tiles" id="tiles">
+          <div class="tile"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><div><b id="tile-sessions">0</b><span>Sessions</span></div></div>
+          <div class="tile"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><div><b id="tile-turns">0</b><span>Turns</span></div></div>
+          <div class="tile"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><div><b id="tile-requests">0</b><span>Requests</span></div></div>
+          <div class="tile"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg><div><b id="tile-cache">0%</b><span>Cache hit</span></div></div>
+          <div class="tile"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg><div><b id="tile-switches">0</b><span>Switches</span></div></div>
+          <div class="tile"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M9 2h6"/></svg><div><b id="tile-timeouts">0</b><span>Timeouts</span></div></div>
+        </div>
+      </section>
+
+      <div class="section-label">Panels</div>
+
+      <div class="grid">
+        <section class="card hl" id="panel-spend">
+          <div class="card-top"><span class="icon-sq"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg></span><span class="card-meta" id="spend-saving"></span></div>
+          <div class="card-body">
+            <div class="kpis">
+              <div><span>Without router</span><b id="spend-without">$0.00</b></div>
+              <div><span>With router</span><b id="spend-with">$0.00</b></div>
+              <div><span>Saving</span><b id="spend-delta">$0.00</b></div>
+            </div>
+            <div class="chart-wrap tall"><canvas id="chart-spend" aria-label="Cumulative spend with and without the router" role="img"></canvas><p class="empty" hidden>No spend in this window</p></div>
+          </div>
+          <div class="card-foot"><h3>Spend vs baseline</h3><p>Cumulative cost with and without routing</p></div>
+        </section>
+
+        <section class="card" id="panel-feed">
+          <div class="card-top"><span class="icon-sq"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><span class="card-meta" id="feed-meta"></span></div>
+          <div class="card-body">
+            <div class="feed" id="feed"></div>
+            <p class="empty" id="feed-empty">No turns yet</p>
+          </div>
+          <div class="card-foot"><h3>Live turn feed</h3><p>Newest first, last 50 turns</p></div>
+        </section>
+
+        <section class="card" id="panel-ledger">
+          <div class="card-top"><span class="icon-sq"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg></span></div>
+          <div class="card-body">
+            <div class="table-wrap">
+              <table id="ledger-table">
+                <thead><tr><th>Turn</th><th>Switch</th><th class="num">Est tax</th><th class="num">Est saving</th><th class="num">Realised</th></tr></thead>
+                <tbody id="ledger-body"></tbody>
+              </table>
+            </div>
+            <p class="empty" id="ledger-empty" hidden>No switches yet</p>
+          </div>
+          <div class="card-foot"><h3>Switch ledger</h3><p>Turns where the router chose another model</p></div>
+        </section>
+
+        <section class="card" id="panel-cache">
+          <div class="card-top"><span class="icon-sq"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></span></div>
+          <div class="card-body">
+            <p class="sub-label">Cache hit ratio per model</p>
+            <div class="chart-wrap"><canvas id="chart-cache-ratio" aria-label="Cache hit ratio per model" role="img"></canvas><p class="empty" hidden>No requests in this window</p></div>
+            <p class="sub-label">Cache write tokens over time</p>
+            <div class="chart-wrap"><canvas id="chart-cache-writes" aria-label="Cache write tokens over time" role="img"></canvas><p class="empty" hidden>No cache writes in this window</p></div>
+          </div>
+          <div class="card-foot"><h3>Cache health</h3><p>Prompt cache reads and writes</p></div>
+        </section>
+
+        <section class="card" id="panel-mix">
+          <div class="card-top"><span class="icon-sq"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg></span></div>
+          <div class="card-body">
+            <div class="chart-wrap"><canvas id="chart-mix" aria-label="Spend per model" role="img"></canvas><p class="empty" hidden>No requests in this window</p></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Model</th><th class="num">Turns</th><th class="num">Requests</th></tr></thead>
+                <tbody id="mix-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card-foot"><h3>Model mix</h3><p>Spend per model that served the request</p></div>
+        </section>
+
+        <section class="card" id="panel-quality">
+          <div class="card-top"><span class="icon-sq"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></span></div>
+          <div class="card-body">
+            <div class="kpis four">
+              <div><span>Latency p50</span><b id="q-p50">n/a</b></div>
+              <div><span>Latency p95</span><b id="q-p95">n/a</b></div>
+              <div><span>Low confidence</span><b id="q-low">0</b></div>
+              <div><span>Timeouts</span><b id="q-timeouts">0</b></div>
+            </div>
+            <p class="sub-label">Tier probability of the chosen answer</p>
+            <div class="chart-wrap"><canvas id="chart-quality" aria-label="Tier probability histogram" role="img"></canvas><p class="empty" hidden>No decisions in this window</p></div>
+            <div class="badges" id="q-rules"></div>
+          </div>
+          <div class="card-foot"><h3>Decision quality</h3><p>Engine latency, confidence and rules fired</p></div>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

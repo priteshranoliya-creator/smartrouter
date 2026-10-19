@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from smartrouter.api import dashboard, decide, hooks, proxy, stream
 from smartrouter.decision.engine import DecisionEngine, EngineError
@@ -17,6 +19,8 @@ from smartrouter.telemetry.events import EventBus
 from smartrouter.telemetry.pricing import load_pricing
 from smartrouter.telemetry.recorder import Recorder
 from smartrouter.telemetry.repo import Repo
+
+DASHBOARD_DIR = ROOT / "dashboard"
 
 
 def create_app(settings: Settings | None = None, engine: DecisionEngine | None = None) -> FastAPI:
@@ -62,6 +66,12 @@ def create_app(settings: Settings | None = None, engine: DecisionEngine | None =
             app.state.repo.close()
 
     app = FastAPI(title="smartrouter", lifespan=lifespan)
+
+    @app.get("/", include_in_schema=False)
+    def index() -> FileResponse:
+        return FileResponse(DASHBOARD_DIR / "index.html")
+
+    app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
 
     app.include_router(dashboard.router)
     app.include_router(stream.router)
