@@ -20,6 +20,9 @@ dependencies = [
 [project.optional-dependencies]
 laya = ["laya==0.4.11"]
 
+[project.scripts]
+router = "smartrouter.cli:app"
+
 [dependency-groups]
 dev = [
     "ruff>=0.6",
