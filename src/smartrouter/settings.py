@@ -247,6 +247,9 @@ def _apply_env(raw: dict[str, Any], env: Mapping[str, str]) -> dict[str, Any]:
     out = dict(raw)
     if mode := env.get("ROUTER_MODE"):
         out["mode"] = mode
+    if upstream := env.get("ROUTER_UPSTREAM_URL"):
+        current = out.get("upstream")
+        out["upstream"] = {**current, "anthropic_url": upstream} if isinstance(current, dict) else current
     if port := env.get("ROUTER_PORT"):
         server = out.get("server")
         if server is None:
@@ -260,7 +263,11 @@ def _parse_router(raw: dict[str, Any], env: Mapping[str, str], label: str) -> Ro
     try:
         return RouterConfig.model_validate(_apply_env(raw, env))
     except ValidationError as exc:
-        sources = {"mode": "ROUTER_MODE", "server.port": "ROUTER_PORT"}
+        sources = {
+            "mode": "ROUTER_MODE",
+            "server.port": "ROUTER_PORT",
+            "upstream.anthropic_url": "ROUTER_UPSTREAM_URL",
+        }
         lines = []
         for path, msg in _validation_issues(exc):
             var = sources.get(path)

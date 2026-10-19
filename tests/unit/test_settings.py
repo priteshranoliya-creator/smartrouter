@@ -263,3 +263,13 @@ def test_settings_are_frozen(tmp_path: Path) -> None:
     settings = load_settings(write_config(tmp_path), env={})
     with pytest.raises(ValueError):
         settings.router.server.port = 1  # type: ignore[misc]
+
+
+def test_router_upstream_url_env_override() -> None:
+    settings = load_settings(env={"ROUTER_UPSTREAM_URL": "http://127.0.0.1:48219"})
+    assert settings.router.upstream.anthropic_url == "http://127.0.0.1:48219"
+
+
+def test_bad_router_upstream_url_names_the_env_var() -> None:
+    with pytest.raises(ConfigError, match="env ROUTER_UPSTREAM_URL: upstream.anthropic_url"):
+        load_settings(env={"ROUTER_UPSTREAM_URL": "not a url"})

@@ -28,3 +28,6 @@ spikes/**/*.log
 # dashboard
 node_modules/
 !dashboard/dist/
+
+# per-machine Claude Code settings (router install writes here)
+.claude/settings.local.json
