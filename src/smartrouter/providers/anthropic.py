@@ -18,7 +18,7 @@ def _count(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-def _usage_from_dict(u: dict[str, Any]) -> Usage:
+def usage_from_dict(u: dict[str, Any]) -> Usage:
     split = u.get("cache_creation")
     if isinstance(split, dict) and (
         "ephemeral_5m_input_tokens" in split or "ephemeral_1h_input_tokens" in split
@@ -52,12 +52,12 @@ def usage_from_events(events: list[dict[str, Any]]) -> Usage:
             continue
         if isinstance(part, dict):
             merged.update({k: v for k, v in part.items() if v is not None})
-    return _usage_from_dict(merged)
+    return usage_from_dict(merged)
 
 
 def usage_from_message(body: dict[str, Any]) -> Usage:
     usage = body.get("usage")
-    return _usage_from_dict(usage if isinstance(usage, dict) else {})
+    return usage_from_dict(usage if isinstance(usage, dict) else {})
 
 
 @dataclass(frozen=True)
