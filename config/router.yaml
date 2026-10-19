@@ -1,0 +1,51 @@
+mode: shadow # off | shadow | active. Overridable with ROUTER_MODE.
+
+server: # loopback only; the loader rejects any other host
+  host: 127.0.0.1
+  port: 8787 # overridable with ROUTER_PORT
+
+upstream:
+  anthropic_url: https://api.anthropic.com
+
+paths: # relative to the repo root
+  db: data/router.db
+  calibration: data/calibration.json
+  reports: data/reports
+
+tiers: # tier name -> model; a higher strength is a stronger tier
+  haiku: {model: claude-haiku-5-5, provider: anthropic, strength: 1}
+  sonnet: {model: claude-sonnet-5-5, provider: anthropic, strength: 2}
+  opus: {model: claude-opus-5-5, provider: anthropic, strength: 3}
+
+decision:
+  engine: scaledown # scaledown | laya | fake
+  question: complexity # key in questions.yaml whose answer picks the tier
+  tier_map: # label -> tier; labels must match that question's criteria exactly
+    A: haiku
+    B: sonnet
+    C: sonnet
+    D: opus
+  deadline_ms: 2500 # sized for ScaleDown (~1.2 s p50), see docs/tdd-changes.md #5
+  engines:
+    scaledown: {url: https://api.scaledown.xyz/classify, timeout_s: 5}
+    laya: {checkpoint: english, device: cpu} # device: cpu | mps | cuda
+
+policy:
+  min_confidence: 0.6 # tier probability needed to act on a decision at all
+  upgrade_confidence: 0.75 # higher bar for moving to a stronger tier
+  min_turns_between_switches: 3
+  margin: 0.2 # safety margin a switch must clear in the cost comparison
+  cache_ttl_s: 3600 # observed 1 h prompt cache on this account, docs/spikes/model-switch.md
+  expected_turns_default: 8 # remaining-turns estimate until enough sessions are logged
+  expected_turns_min_sessions: 20 # sessions needed before using the logged estimate
+
+eval:
+  judge: gemini-pro # an arm name
+  rejudge_arm: opus # arm that re-judges a sample of answers
+  rejudge_fraction: 0.1
+  arms: # arm name -> model id
+    opus: claude-opus-5-5
+    sonnet: claude-sonnet-5-5
+    haiku: claude-haiku-5-5
+    gemini-flash: gemini-3.8-flash
+    gemini-pro: gemini-3.1-pro-preview
