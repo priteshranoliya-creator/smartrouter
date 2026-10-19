@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
-from smartrouter.api import proxy
+from smartrouter.api import hooks, proxy
 from smartrouter.settings import ROOT, Settings, load_settings
 from smartrouter.telemetry.events import EventBus
 from smartrouter.telemetry.pricing import load_pricing
@@ -41,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    app.include_router(hooks.router)
     app.include_router(proxy.router)
 
     return app

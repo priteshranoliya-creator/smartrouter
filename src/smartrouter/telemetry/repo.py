@@ -119,12 +119,35 @@ class Repo:
     def upsert_session(self, session: Session) -> None:
         self._upsert("sessions", session, ("id",))
 
+    def ensure_session(self, session: Session) -> None:
+        """Create the session if unknown. A known one keeps its row, but an empty project_path is filled."""
+        self._write(
+            "INSERT INTO sessions (id, project_path, started_at, state) "
+            "VALUES (:id, :project_path, :started_at, :state) "
+            "ON CONFLICT (id) DO UPDATE SET project_path = CASE WHEN sessions.project_path = '' "
+            "THEN excluded.project_path ELSE sessions.project_path END",
+            {
+                "id": session.id,
+                "project_path": session.project_path,
+                "started_at": session.started_at,
+                "state": session.state,
+            },
+        )
+
     def get_session(self, session_id: str) -> Session | None:
         row = self._one("SELECT * FROM sessions WHERE id = ?", (session_id,))
         return None if row is None else _load(Session, row)
 
     def set_session_state(self, session_id: str, state: SessionState) -> None:
         self._write("UPDATE sessions SET state = ? WHERE id = ?", (state, session_id))
+
+    def mark_session_request(self, session_id: str, model: str, at: str) -> None:
+        """A main request finished: it sets the current model and ends a compaction."""
+        self._write(
+            "UPDATE sessions SET current_model = ?, last_request_at = ?, "
+            "state = CASE WHEN state = 'compacting' THEN 'active' ELSE state END WHERE id = ?",
+            (model, at, session_id),
+        )
 
     def touch_session_model(self, session_model: SessionModel) -> None:
         self._upsert("session_models", session_model, ("session_id", "model"))
@@ -133,8 +156,31 @@ class Repo:
         rows = self._all("SELECT * FROM session_models WHERE session_id = ? ORDER BY model", (session_id,))
         return [_load(SessionModel, r) for r in rows]
 
+    def get_session_model(self, session_id: str, model: str) -> SessionModel | None:
+        row = self._one(
+            "SELECT * FROM session_models WHERE session_id = ? AND model = ?", (session_id, model)
+        )
+        return None if row is None else _load(SessionModel, row)
+
     def insert_turn(self, turn: Turn) -> int:
         return self._insert("turns", turn)
+
+    def next_turn_seq(self, session_id: str) -> int:
+        row = self._one("SELECT COALESCE(MAX(seq), 0) + 1 FROM turns WHERE session_id = ?", (session_id,))
+        assert row is not None
+        seq: int = row[0]
+        return seq
+
+    def get_turn_by_prompt_id(self, session_id: str, prompt_id: str) -> Turn | None:
+        row = self._one(
+            "SELECT * FROM turns WHERE session_id = ? AND prompt_id = ? ORDER BY seq DESC LIMIT 1",
+            (session_id, prompt_id),
+        )
+        return None if row is None else _load(Turn, row)
+
+    def latest_turn(self, session_id: str) -> Turn | None:
+        row = self._one("SELECT * FROM turns WHERE session_id = ? ORDER BY seq DESC LIMIT 1", (session_id,))
+        return None if row is None else _load(Turn, row)
 
     def get_turn(self, turn_id: int) -> Turn | None:
         row = self._one("SELECT * FROM turns WHERE id = ?", (turn_id,))

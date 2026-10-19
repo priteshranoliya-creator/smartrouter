@@ -1,4 +1,5 @@
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -7,8 +8,16 @@ import pytest
 from smartrouter.providers.base import Usage
 from smartrouter.settings import ROOT
 from smartrouter.telemetry.events import EventBus
+from smartrouter.telemetry.models import Session, Turn
 from smartrouter.telemetry.pricing import PriceBook, cost, load_pricing
-from smartrouter.telemetry.recorder import Exchange, Recorder
+from smartrouter.telemetry.recorder import (
+    PROMPT_HEADER,
+    SESSION_HEADER,
+    Exchange,
+    Recorder,
+    choose_turn,
+    resolve_kind,
+)
 from smartrouter.telemetry.repo import Repo
 
 USAGE = Usage(input_tokens=2, output_tokens=4, cache_read_tokens=35617, inference_geo="global")
@@ -104,3 +113,54 @@ def test_failed_exchange_keeps_status_and_error_without_tokens(repo: Repo, price
     Recorder(repo, prices, EventBus()).record(exchange(status=400, usage=None, error="bad model"))
     row = repo.list_requests("s1")[0]
     assert (row.status, row.error, row.input_tokens, row.cost_usd) == (400, "bad model", None, 0.0)
+
+
+@pytest.mark.parametrize(
+    ("class_header", "request_model", "current_model", "expected"),
+    [
+        ("main", "haiku", "opus", "main"),
+        ("auxiliary", "haiku", None, "background"),
+        ("compaction", "opus", "opus", "compaction"),
+        ("unheard-of", "opus", "opus", "main"),
+        (None, "opus", None, "main"),
+        (None, "opus", "opus", "main"),
+        (None, "haiku", "opus", "background"),
+        (None, None, "opus", "background"),
+    ],
+)
+def test_resolve_kind(
+    class_header: str | None, request_model: str | None, current_model: str | None, expected: str
+) -> None:
+    assert resolve_kind(class_header, request_model, current_model) == expected
+
+
+def test_choose_turn_prefers_the_prompt_id_match() -> None:
+    older = Turn(id=1, session_id="s", seq=1, prompt_id="a", prompt="x", created_at="t")
+    newer = replace(older, id=2, seq=2, prompt_id="b")
+    assert choose_turn(older, newer) == older
+    assert choose_turn(None, newer) == newer
+    assert choose_turn(None, None) is None
+
+
+def test_requests_link_to_turns_and_advance_the_session(repo: Repo, prices: PriceBook) -> None:
+    repo.ensure_session(Session(id="s1", project_path="/p", started_at=WHEN.isoformat()))
+    turn_id = repo.insert_turn(Turn(session_id="s1", seq=1, prompt_id="p1", prompt="x", created_at="t"))
+    recorder = Recorder(repo, prices, EventBus())
+    recorder.record(exchange(request_headers={SESSION_HEADER: "s1", PROMPT_HEADER: "p1"}))
+    (row,) = repo.list_requests("s1")
+    assert (row.turn_id, row.kind) == (turn_id, "main")
+    session = repo.get_session("s1")
+    assert session is not None
+    assert (session.current_model, session.last_request_at) == ("claude-haiku-5-5", WHEN.isoformat())
+    assert session.project_path == "/p"
+    warm = repo.get_session_model("s1", "claude-haiku-5-5")
+    assert warm is not None
+    assert warm.prefix_tokens == USAGE.prompt_tokens
+
+
+def test_failed_main_request_leaves_the_session_model_alone(repo: Repo, prices: PriceBook) -> None:
+    Recorder(repo, prices, EventBus()).record(exchange(status=529, usage=None))
+    session = repo.get_session("s1")
+    assert session is not None
+    assert session.current_model is None
+    assert repo.get_session_models("s1") == []

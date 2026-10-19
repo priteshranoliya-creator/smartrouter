@@ -187,3 +187,49 @@ def test_data_persists_across_reopen(tmp_path: Path) -> None:
         first.upsert_session(session)
     with Repo.open(path) as second:
         assert second.get_session("s9") == session
+
+
+def test_ensure_session_keeps_the_row_but_fills_an_empty_project_path(repo: Repo) -> None:
+    repo.ensure_session(Session(id="s9", project_path="", started_at=T0))
+    repo.ensure_session(Session(id="s9", project_path="/proj", started_at=T2))
+    repo.ensure_session(Session(id="s9", project_path="/other", started_at=T2))
+    assert repo.get_session("s9") == Session(id="s9", project_path="/proj", started_at=T0)
+
+
+def test_turn_lookups(repo: Repo) -> None:
+    assert repo.next_turn_seq("s1") == 1
+    assert repo.latest_turn("s1") is None
+    ids = [
+        repo.insert_turn(Turn(session_id="s1", seq=seq, prompt_id=f"p{seq}", prompt="x", created_at=T0))
+        for seq in (1, 2)
+    ]
+    assert repo.next_turn_seq("s1") == 3
+    assert repo.next_turn_seq("other") == 1
+    latest = repo.latest_turn("s1")
+    assert latest is not None
+    assert latest.id == ids[1]
+    first = repo.get_turn_by_prompt_id("s1", "p1")
+    assert first is not None
+    assert first.id == ids[0]
+    assert repo.get_turn_by_prompt_id("s1", "nope") is None
+    assert repo.get_turn_by_prompt_id("other", "p1") is None
+
+
+def test_mark_session_request_sets_model_and_ends_compaction(repo: Repo) -> None:
+    repo.set_session_state("s1", "compacting")
+    repo.mark_session_request("s1", "opus", T1)
+    session = repo.get_session("s1")
+    assert session is not None
+    assert (session.current_model, session.last_request_at, session.state) == ("opus", T1, "active")
+    repo.set_session_state("s1", "ended")
+    repo.mark_session_request("s1", "haiku", T2)
+    ended = repo.get_session("s1")
+    assert ended is not None
+    assert (ended.current_model, ended.state) == ("haiku", "ended")
+
+
+def test_get_session_model(repo: Repo) -> None:
+    warm = SessionModel(session_id="s1", model="opus", last_used_at=T1, prefix_tokens=500)
+    repo.touch_session_model(warm)
+    assert repo.get_session_model("s1", "opus") == warm
+    assert repo.get_session_model("s1", "haiku") is None
