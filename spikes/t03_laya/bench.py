@@ -1,6 +1,8 @@
 """T0.3 spike: load Laya, run the 3 router questions on 20 prompts, measure latency.
 
 Usage (from repo root):
+    uv venv --python 3.11 spikes/t03_laya/.venv
+    uv pip install --python spikes/t03_laya/.venv/bin/python laya==0.4.11 pyyaml
     USE_TF=0 spikes/t03_laya/.venv/bin/python -I spikes/t03_laya/bench.py \
         --checkpoints english,multilingual,typed-decisions --device cpu --repeats 3
 

@@ -44,7 +44,7 @@ def classify(key: str, text: str) -> tuple[float, dict]:
     req = urllib.request.Request(URL, data=body, method="POST",
                                  # the API returns 403 to urllib's default User-Agent
                                  headers={"x-api-key": key, "Content-Type": "application/json",
-                                          "User-Agent": "laya-router-spike/0.1"})
+                                          "User-Agent": "smartrouter-spike/0.1"})
     t = time.perf_counter()
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:

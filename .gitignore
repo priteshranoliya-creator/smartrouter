@@ -21,3 +21,8 @@ dist/
 # spike output
 spikes/**/out/
 spikes/**/*.log
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
