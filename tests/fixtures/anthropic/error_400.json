@@ -1,0 +1,1 @@
+{"type":"error","error":{"type":"invalid_request_error","message":"model: claude-nope is not a valid model"},"request_id":"req_fixture"}
