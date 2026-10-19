@@ -13,8 +13,10 @@ import typer
 import uvicorn
 
 from smartrouter import install as installer
+from smartrouter.decision.calibrated import write_calibration
 from smartrouter.decision.engine import EngineError
-from smartrouter.decision.factory import build_engine
+from smartrouter.decision.factory import build_engine, build_raw_engine
+from smartrouter.eval.calibrate import CalibrationRun
 from smartrouter.eval.dataset import DatasetError, GoldenItem, Report, load_dataset, validate
 from smartrouter.eval.router_arm import RouterArm
 from smartrouter.policy.rules import PolicyContext
@@ -271,3 +273,53 @@ def eval_run(
             raise fail(str(exc)) from exc
         typer.echo(f"run id: {run_id}")
         typer.echo(format_summary(summarize(repo.list_eval_results(run_id))))
+
+
+@eval_app.command("calibrate")
+def eval_calibrate(
+    dataset: DatasetOption = DEFAULT_DATASET,
+    split: Annotated[
+        str, typer.Option("--split", help="Split to fit on; the other split scores it.")
+    ] = "train",
+    concurrency: Annotated[int, typer.Option("--concurrency", min=1, help="Parallel engine calls.")] = 4,
+) -> None:
+    """Fit the routing question's temperature on the train split and score it on the test split."""
+    from smartrouter.eval.calibrate import CalibrationRunError, render_report, run_calibration
+    from smartrouter.eval.dataset import dataset_version
+
+    settings = load_settings()
+    router = settings.router
+    if split not in ("train", "test"):
+        typer.echo(f"error: --split must be train or test, got {split!r}", err=True)
+        raise typer.Exit(2)
+    items = _load_items(dataset, list(router.tiers))
+    version = dataset_version(dataset)
+    now = datetime.now(UTC)
+    cache = settings.path("calibration").with_name("calibration_raw.jsonl")
+
+    async def run() -> CalibrationRun:
+        async with httpx.AsyncClient() as http:
+            return await run_calibration(
+                build_raw_engine(settings, http),
+                items,
+                question=router.decision.question,
+                tier_map=router.decision.tier_map,
+                tiers=list(router.tiers),
+                version=version,
+                cache=cache,
+                fit_split=split,
+                concurrency=concurrency,
+                now=now,
+            )
+
+    try:
+        result = asyncio.run(run())
+    except (EngineError, CalibrationRunError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    write_calibration(settings.path("calibration"), result.calibration)
+    report = render_report(result, str(dataset))
+    reports = settings.path("reports")
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / f"calibration-{now:%Y%m%d-%H%M}.md").write_text(report, encoding="utf-8")
+    typer.echo(report)

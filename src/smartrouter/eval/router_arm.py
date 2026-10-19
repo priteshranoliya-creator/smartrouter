@@ -24,6 +24,10 @@ class Prediction:
     fell_back: bool
 
 
+def item_text(item: GoldenItem) -> str:
+    return f"{item.context}\n\n{item.prompt}" if item.context else item.prompt
+
+
 class RouterArm:
     def __init__(self, engine: DecisionEngine, settings: Settings, context: PolicyContext) -> None:
         router = settings.router
@@ -35,8 +39,9 @@ class RouterArm:
         self._expected_turns = expected_turns(None, 0, router.policy)
 
     async def predict(self, item: GoldenItem) -> Prediction:
-        text = f"{item.context}\n\n{item.prompt}" if item.context else item.prompt
-        decision = await self._engine.decide(build_state(text, None, self._engine.state_budget_tokens))
+        decision = await self._engine.decide(
+            build_state(item_text(item), None, self._engine.state_budget_tokens)
+        )
         answer = decision.answers.get(self._question)
         if answer is None:
             raise EngineError(f"{decision.engine}: no answer for question {self._question!r}")

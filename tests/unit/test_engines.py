@@ -191,6 +191,7 @@ async def test_laya_engine_wraps_router_failures() -> None:
 def settings_with_engine(tmp_path: Path, engine: str, key: str | None) -> Any:
     router = yaml.safe_load((ROOT / "config/router.yaml").read_text())
     router["decision"]["engine"] = engine
+    router["paths"]["calibration"] = str(tmp_path / "calibration.json")
     (tmp_path / "router.yaml").write_text(yaml.safe_dump(router))
     (tmp_path / "questions.yaml").write_text((ROOT / "config/questions.yaml").read_text())
     return load_settings(tmp_path, env={"SCALEDOWN_API_KEY": key} if key else {})

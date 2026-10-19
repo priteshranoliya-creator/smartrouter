@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 
+from smartrouter.decision.calibration import sum_by_tier
 from smartrouter.decision.engine import QuestionAnswer
 from smartrouter.settings import PolicyConfig
 from smartrouter.telemetry.pricing import PriceBook, Ttl, rates
@@ -14,11 +15,7 @@ ONE_HOUR_S = 3600
 
 def tier_probabilities(answer: QuestionAnswer, tier_map: Mapping[str, str]) -> dict[str, float]:
     """Sum label probabilities per tier. Every label must be in `tier_map` (settings enforce it)."""
-    out: dict[str, float] = {}
-    for label, probability in answer.probabilities.items():
-        tier = tier_map[label]
-        out[tier] = out.get(tier, 0.0) + probability
-    return out
+    return sum_by_tier(answer.probabilities, tier_map)
 
 
 def cache_ttl(cfg: PolicyConfig) -> Ttl:
