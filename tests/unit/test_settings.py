@@ -109,6 +109,7 @@ ROUTER_CASES = [
     ("decision.tier_map.Z", "haiku", "labels not in question 'complexity': Z"),
     ("eval.judge", "nope", "eval.judge: unknown arm 'nope'"),
     ("eval.rejudge_arm", "nope", "eval.rejudge_arm: unknown arm 'nope'"),
+    ("eval.router_fallback_tier", "gpt", "eval.router_fallback_tier: unknown tier 'gpt' (known: haiku"),
     ("policy.min_confidance", 0.5, "policy.min_confidance"),
     ("servr", {"port": 1}, "servr"),
     ("server", DELETE, "server"),

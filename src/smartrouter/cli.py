@@ -8,14 +8,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 import typer
 import uvicorn
 
 from smartrouter import install as installer
+from smartrouter.decision.engine import EngineError
+from smartrouter.decision.factory import build_engine
 from smartrouter.eval.dataset import DatasetError, GoldenItem, Report, load_dataset, validate
+from smartrouter.eval.router_arm import RouterArm
+from smartrouter.policy.rules import PolicyContext
 from smartrouter.settings import ROOT, load_settings
 from smartrouter.telemetry import stats
 from smartrouter.telemetry.export import write_csv
+from smartrouter.telemetry.models import EvalResult
 from smartrouter.telemetry.pricing import PricingError, load_pricing
 from smartrouter.telemetry.repo import Repo
 
@@ -171,3 +177,97 @@ def eval_smoke(
 
     if asyncio.run(run()):
         raise typer.Exit(1)
+
+
+@eval_app.command("run")
+def eval_run(
+    dataset: DatasetOption = DEFAULT_DATASET,
+    split: Annotated[str, typer.Option("--split", help="train or test.")] = "test",
+    arms: Annotated[
+        str | None,
+        typer.Option("--arms", help="Comma-separated arms (default: every configured arm, router, oracle)."),
+    ] = None,
+    judge: Annotated[str | None, typer.Option("--judge", help="Judge arm (default: eval.judge).")] = None,
+    limit: Annotated[int | None, typer.Option("--limit", min=1, help="Only the first N items.")] = None,
+    concurrency: Annotated[int, typer.Option("--concurrency", min=1, help="Parallel rows.")] = 4,
+    resume: Annotated[int | None, typer.Option("--resume", help="Finish this run id.")] = None,
+) -> None:
+    """Answer and judge every item of a split with every arm, store the rows, print a summary."""
+    from smartrouter.eval.dataset import dataset_version
+    from smartrouter.eval.providers import ClaudeCliProvider, EvalError, build_providers
+    from smartrouter.eval.report import format_summary, summarize
+    from smartrouter.eval.runner import VIRTUAL_ARMS, EvalRunner, RunnerConfig, RunSetupError, run_eval
+
+    def fail(message: str, code: int = 1) -> typer.Exit:
+        typer.echo(f"error: {message}", err=True)
+        return typer.Exit(code)
+
+    settings = load_settings()
+    router = settings.router
+    if split not in ("train", "test"):
+        raise fail(f"--split must be train or test, got {split!r}", 2)
+    try:
+        items = [i for i in load_dataset(dataset, list(router.tiers)) if i.split == split][:limit]
+        version = dataset_version(dataset)
+        book = load_pricing(ROOT / "config/pricing.yaml")
+        available = build_providers(settings, book)
+    except DatasetError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    except (PricingError, EvalError) as exc:
+        raise fail(str(exc)) from exc
+    if not items:
+        raise fail(f"no {split} items in {dataset}")
+    judge_name = judge or router.eval.judge
+    if judge_name not in available:
+        raise fail(f"unknown judge arm {judge_name!r} (known: {', '.join(available)})", 2)
+
+    with Repo.open(settings.path("db")) as repo:
+        names = [a.strip() for a in arms.split(",") if a.strip()] if arms else None
+        if names is None:
+            if resume is None:
+                names = [*available, *VIRTUAL_ARMS]
+            elif (previous := repo.get_eval_run(resume)) is not None:
+                names = previous.arms
+            else:
+                raise fail(f"no eval run {resume}", 2)
+        names = list(dict.fromkeys(names))
+
+        def progress(result: EvalResult) -> None:
+            outcome = f"error: {result.error}" if result.error else f"score {result.judge_score:.2f}"
+            typer.echo(f"{result.item_id} {result.arm} {result.model_used} {outcome}", err=True)
+
+        async def run() -> int:
+            async with httpx.AsyncClient() as http:
+                router_arm = None
+                if "router" in names:
+                    context = PolicyContext(router.policy, router.tiers, book)
+                    router_arm = RouterArm(build_engine(settings, http), settings, context)
+                config = RunnerConfig(
+                    arms=available,
+                    tier_models={name: tier.model for name, tier in router.tiers.items()},
+                    tier_provider=ClaudeCliProvider(book),
+                    judge=available[judge_name],
+                    rejudge=available[router.eval.rejudge_arm],
+                    rejudge_fraction=router.eval.rejudge_fraction,
+                    router=router_arm,
+                    concurrency=concurrency,
+                )
+                return await run_eval(
+                    EvalRunner(repo, config, progress),
+                    repo,
+                    items,
+                    names,
+                    version=version,
+                    judge_model=available[judge_name][1],
+                    resume=resume,
+                )
+
+        try:
+            run_id = asyncio.run(run())
+        except RunSetupError as exc:
+            raise fail(str(exc), 2) from exc
+        except EngineError as exc:
+            raise fail(str(exc)) from exc
+        typer.echo(f"run id: {run_id}")
+        typer.echo(format_summary(summarize(repo.list_eval_results(run_id))))

@@ -120,6 +120,7 @@ class EvalConfig(_Frozen):
     rejudge_arm: NonEmpty
     rejudge_fraction: Probability
     arms: Annotated[dict[NonEmpty, NonEmpty], Field(min_length=1)]
+    router_fallback_tier: NonEmpty = "sonnet"  # tier the router arm serves when the policy abstains
 
 
 class RouterConfig(_Frozen):
@@ -184,6 +185,9 @@ def tier_issues(router: RouterConfig) -> list[Issue]:
     for label, tier_name in router.decision.tier_map.items():
         if tier_name not in router.tiers:
             issues.append((f"decision.tier_map.{label}", f"unknown tier {tier_name!r} (known: {known})"))
+    fallback = router.eval.router_fallback_tier
+    if fallback not in router.tiers:
+        issues.append(("eval.router_fallback_tier", f"unknown tier {fallback!r} (known: {known})"))
     return issues
 
 

@@ -44,7 +44,9 @@ class EvalAnswer:
 
 
 class EvalProvider(Protocol):
-    async def answer(self, prompt: str, model: str) -> EvalAnswer: ...
+    async def answer(
+        self, prompt: str, model: str, *, system: str | None = None, json_mode: bool = False
+    ) -> EvalAnswer: ...
 
 
 def render_prompt(item: GoldenItem) -> str:
@@ -120,14 +122,17 @@ class ClaudeCliProvider:
         source = os.environ if self._environ is None else self._environ
         return {k: v for k, v in source.items() if k not in STRIPPED_ENV}
 
-    async def answer(self, prompt: str, model: str) -> EvalAnswer:
+    async def answer(
+        self, prompt: str, model: str, *, system: str | None = None, json_mode: bool = False
+    ) -> EvalAnswer:
+        del json_mode  # the CLI has no JSON mode; callers ask for JSON in the prompt
         argv = [
             "claude",
             "-p",
             "--model",
             model,
             "--system-prompt",
-            EVAL_SYSTEM_PROMPT,
+            system or EVAL_SYSTEM_PROMPT,
             "--tools",
             "",
             "--setting-sources",
@@ -172,10 +177,15 @@ class GeminiProvider:
         self._client = client
         self._timeout_s = timeout_s
 
-    async def answer(self, prompt: str, model: str) -> EvalAnswer:
+    async def answer(
+        self, prompt: str, model: str, *, system: str | None = None, json_mode: bool = False
+    ) -> EvalAnswer:
         if self._client is None:
             raise EvalError("GEMINI_API_KEY is not set")
-        config = types.GenerateContentConfig(system_instruction=EVAL_SYSTEM_PROMPT)
+        config = types.GenerateContentConfig(
+            system_instruction=system or EVAL_SYSTEM_PROMPT,
+            response_mime_type="application/json" if json_mode else None,
+        )
         started = time.perf_counter()
         try:
             response = await asyncio.wait_for(

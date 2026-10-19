@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from collections.abc import Iterable, Sequence
@@ -39,6 +40,14 @@ class GoldenItem(BaseModel):
     tags: list[str]
     status: Status = "reviewed"
     source: str = ""
+
+
+def dataset_version(path: Path) -> str:
+    """First 12 hex characters of the file's SHA-256: names the exact dataset an eval run used."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    except OSError as exc:
+        raise DatasetError(f"{path}: cannot read file ({exc.strerror})") from None
 
 
 def load_dataset(path: Path, tiers: Iterable[str]) -> list[GoldenItem]:

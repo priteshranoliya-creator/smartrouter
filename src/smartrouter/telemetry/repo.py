@@ -273,6 +273,10 @@ class Repo:
         rows = self._all("SELECT * FROM eval_results WHERE run_id = ? ORDER BY id", (run_id,))
         return [_load(EvalResult, r, _RUBRIC_HITS) for r in rows]
 
+    def delete_eval_errors(self, run_id: int) -> int:
+        """Drop the run's failed rows so a resume can redo them. Returns how many were removed."""
+        return self._write_count("DELETE FROM eval_results WHERE run_id = ? AND error IS NOT NULL", (run_id,))
+
     def write_probe(self) -> bool:
         """True when the database accepts a write transaction (taken and rolled back at once)."""
         try:

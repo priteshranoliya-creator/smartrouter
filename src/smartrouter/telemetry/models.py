@@ -124,6 +124,7 @@ class EvalResult:
     latency_ms: float | None = None
     expected_tier: str | None = None
     predicted_tier: str | None = None
+    error: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

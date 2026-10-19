@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import pytest
 
-from smartrouter.telemetry.db import connect, migrate
+from smartrouter.telemetry.db import MIGRATIONS_DIR, connect, migrate
 from smartrouter.telemetry.models import Decision, Request, Session, Turn
 from smartrouter.telemetry.repo import Repo
 
@@ -47,10 +47,10 @@ def test_open_creates_missing_parent_dir_and_schema(tmp_path: Path) -> None:
 
 def test_migrate_twice_applies_nothing_new(tmp_path: Path) -> None:
     conn = connect(tmp_path / "r.db")
-    assert migrate(conn) == [1]
+    assert migrate(conn) == [1, 2]
     assert migrate(conn) == []
     rows = conn.execute("SELECT version, name FROM schema_migrations").fetchall()
-    assert [(r[0], r[1]) for r in rows] == [(1, "init")]
+    assert [(r[0], r[1]) for r in rows] == [(1, "init"), (2, "eval_errors")]
 
 
 def test_journal_mode_is_wal(tmp_path: Path) -> None:
@@ -123,3 +123,25 @@ def test_duplicate_turn_seq_in_a_session_is_rejected(tmp_path: Path) -> None:
         repo.insert_turn(turn)
         with pytest.raises(sqlite3.IntegrityError):
             repo.insert_turn(turn)
+
+
+def test_migration_002_adds_error_to_existing_eval_results(tmp_path: Path) -> None:
+    only_001 = tmp_path / "m"
+    only_001.mkdir()
+    (only_001 / "001_init.sql").write_text((MIGRATIONS_DIR / "001_init.sql").read_text())
+    conn = connect(tmp_path / "r.db")
+    assert migrate(conn, only_001) == [1]
+    conn.execute(
+        "INSERT INTO eval_runs (dataset_version, arms, judge_model, started_at) VALUES ('v', '[]', 'j', 't')"
+    )
+    conn.execute(
+        "INSERT INTO eval_results (run_id, item_id, arm, model_used, answer) "
+        "VALUES (1, 'g-0001', 'a', 'm', 'x')"
+    )
+    assert migrate(conn) == [2]
+    row = conn.execute("SELECT answer, error FROM eval_results").fetchone()
+    assert (row["answer"], row["error"]) == ("x", None)
+    conn.execute(
+        "INSERT INTO eval_results (run_id, item_id, arm, model_used, answer, error) "
+        "VALUES (1, 'g-0002', 'a', 'm', '', 'boom')"
+    )

@@ -43,6 +43,7 @@ eval:
   judge: gemini-argon # an arm name; a non-Claude judge so no Claude model grades its own family
   rejudge_arm: opus # arm that re-judges a sample of answers
   rejudge_fraction: 0.1
+  router_fallback_tier: sonnet # tier the router arm serves when the policy abstains (low confidence)
   arms: # arm name -> model id
     opus: claude-opus-5-5
     sonnet: claude-sonnet-5-5

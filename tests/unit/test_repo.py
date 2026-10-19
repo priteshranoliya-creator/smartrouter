@@ -166,11 +166,25 @@ def test_eval_result_round_trip(repo: Repo) -> None:
         latency_ms=900.0,
         expected_tier="medium",
         predicted_tier="hard",
+        error="judge: bad json",
     )
     bare = EvalResult(run_id=run_id, item_id="item-2", arm="a", model_used="haiku", answer="?")
     full_id = repo.insert_eval_result(full)
     bare_id = repo.insert_eval_result(bare)
     assert repo.list_eval_results(run_id) == [replace(full, id=full_id), replace(bare, id=bare_id)]
+
+
+def test_delete_eval_errors_removes_only_failed_rows_of_that_run(repo: Repo) -> None:
+    first = repo.insert_eval_run(EvalRun(dataset_version="v", arms=["a"], judge_model="j", started_at=T0))
+    second = repo.insert_eval_run(EvalRun(dataset_version="v", arms=["a"], judge_model="j", started_at=T0))
+    good = EvalResult(run_id=first, item_id="i1", arm="a", model_used="m", answer="x")
+    bad = EvalResult(run_id=first, item_id="i2", arm="a", model_used="m", answer="", error="boom")
+    other = EvalResult(run_id=second, item_id="i2", arm="a", model_used="m", answer="", error="boom")
+    for row in (good, bad, other):
+        repo.insert_eval_result(row)
+    assert repo.delete_eval_errors(first) == 1
+    assert [r.item_id for r in repo.list_eval_results(first)] == ["i1"]
+    assert len(repo.list_eval_results(second)) == 1
 
 
 def test_judge_score_outside_unit_interval_is_rejected(repo: Repo) -> None:
