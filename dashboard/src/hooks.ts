@@ -158,9 +158,11 @@ export function useStream(onOpen: () => void, onEvent: (sessionId: string | null
   return live;
 }
 
+/** Selecting a mode shows at once; the server's answer (or its current mode after a failure) settles it. */
 export function useMode(): { mode: Mode | null; message: string | null; change: (mode: Mode) => void } {
   const [mode, setMode] = useState<Mode | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const latest = useRef(0);
   useEffect(() => {
     api
       .fetchMode()
@@ -168,11 +170,20 @@ export function useMode(): { mode: Mode | null; message: string | null; change: 
       .catch(() => setMode(null));
   }, []);
   const change = (next: Mode) => {
+    const ticket = ++latest.current;
     setMessage(null);
+    setMode(next);
     api
       .putMode(next)
-      .then(setMode)
-      .catch((e: unknown) => setMessage(e instanceof Error ? e.message : String(e)));
+      .then((confirmed) => ticket === latest.current && setMode(confirmed))
+      .catch((e: unknown) => {
+        if (ticket !== latest.current) return;
+        setMessage(e instanceof Error ? e.message : String(e));
+        api
+          .fetchMode()
+          .then(setMode)
+          .catch(() => setMode(null));
+      });
   };
   return { mode, message, change };
 }

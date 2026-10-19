@@ -11,6 +11,20 @@ interface ArmPoint {
 
 const toPoint = (p: QualityCostPoint): ArmPoint => ({ x: p.total_cost_usd, y: p.mean_score, arm: p.arm });
 
+const LABEL_GAP = 10;
+const LABEL_HEIGHT = 14;
+
+interface LabelBox {
+  arm: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const overlaps = (a: LabelBox, b: LabelBox) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/** Arms with near-equal cost and score land on one spot, so a label that hits another label or marker steps down until it is clear. */
 const armLabels: Plugin<"scatter"> = {
   id: "armLabels",
   afterDatasetsDraw(chart) {
@@ -19,15 +33,42 @@ const armLabels: Plugin<"scatter"> = {
     ctx.font = "12px Inter, system-ui, sans-serif";
     ctx.fillStyle = getComputedStyle(chart.canvas).getPropertyValue("--fg").trim();
     ctx.textBaseline = "middle";
-    chart.data.datasets.forEach((dataset, index) => {
-      chart.getDatasetMeta(index).data.forEach((element, i) => {
-        const point = dataset.data[i] as unknown as ArmPoint;
-        const left = element.x + 10 + ctx.measureText(point.arm).width > chartArea.right;
-        ctx.textAlign = left ? "right" : "left";
-        ctx.fillText(point.arm, element.x + (left ? -10 : 10), element.y);
+    const placed: LabelBox[] = [];
+    const points = chart.data.datasets.flatMap((dataset, index) =>
+      chart.isDatasetVisible(index)
+        ? chart.getDatasetMeta(index).data.map((element, i) => ({
+            element,
+            point: dataset.data[i] as unknown as ArmPoint,
+            radius: (element.options as { radius?: number }).radius ?? 6,
+          }))
+        : [],
+    );
+    const markers = points.map(({ element, point, radius }): LabelBox => ({ arm: point.arm, x: element.x - radius, y: element.y - radius, w: 2 * radius, h: 2 * radius }));
+    points.sort((a, b) => a.element.y - b.element.y || a.element.x - b.element.x);
+    for (const { element, point } of points) {
+      const w = ctx.measureText(point.arm).width;
+      const fits = (side: "right" | "left") => (side === "right" ? element.x + LABEL_GAP + w <= chartArea.right : element.x - LABEL_GAP - w >= chartArea.left);
+      const at = (side: "right" | "left", y: number): LabelBox => ({
+        arm: point.arm,
+        x: side === "right" ? element.x + LABEL_GAP : element.x - LABEL_GAP - w,
+        y,
+        w,
+        h: LABEL_HEIGHT,
       });
-    });
+      const blocked = (box: LabelBox) => placed.some((other) => overlaps(box, other)) || markers.some((m) => m.arm !== point.arm && overlaps(box, m));
+      const home = element.y - LABEL_HEIGHT / 2;
+      const preferred = fits("right") ? "right" : "left";
+      const flipped = preferred === "right" ? "left" : "right";
+      let box = at(preferred, home);
+      if (blocked(box) && fits(flipped) && !blocked(at(flipped, home))) box = at(flipped, home);
+      while (blocked(box) && box.y < chartArea.bottom - LABEL_HEIGHT) box = at(box.x > element.x ? "right" : "left", box.y + LABEL_HEIGHT);
+      placed.push(box);
+      const onLeft = box.x < element.x;
+      ctx.textAlign = onLeft ? "right" : "left";
+      ctx.fillText(point.arm, onLeft ? box.x + w : box.x, box.y + LABEL_HEIGHT / 2);
+    }
     ctx.restore();
+    chart.canvas.dataset["labelBoxes"] = JSON.stringify(placed);
   },
 };
 

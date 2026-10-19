@@ -22,7 +22,7 @@ export function Topbar({ live, window, onWindow, onToggleTheme }: TopbarProps) {
         </span>
         <div class="segmented compact" id="window-switch" role="group" aria-label="Time window">
           {WINDOWS.map((w) => (
-            <button type="button" data-window={w} class={w === window ? "on" : ""} onClick={() => onWindow(w)}>
+            <button type="button" data-window={w} class={w === window ? "on" : ""} aria-pressed={w === window} onClick={() => onWindow(w)}>
               {w}
             </button>
           ))}

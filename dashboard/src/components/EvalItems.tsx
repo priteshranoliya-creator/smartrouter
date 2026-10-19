@@ -71,9 +71,9 @@ function ArmCard({ name, arm }: { name: string; arm: ItemArm | undefined }) {
 function ItemRows({ item, arms, open, onToggle }: { item: ItemRow; arms: string[]; open: boolean; onToggle: () => void }) {
   return (
     <Fragment>
-      <tr class={"item-row" + (open ? " open" : "")}>
+      <tr class={"item-row" + (open ? " open" : "")} onClick={onToggle}>
         <td>
-          <button type="button" class="row-toggle" aria-expanded={open} aria-label={"Show answers for " + item.item_id} onClick={onToggle}>
+          <button type="button" class="row-toggle" aria-expanded={open} aria-label={"Show answers for " + item.item_id}>
             <span class="chev">
               <IconChevron />
             </span>

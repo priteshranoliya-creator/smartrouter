@@ -1,4 +1,4 @@
-.PHONY: check lint typecheck test fmt dashboard dashboard-check
+.PHONY: check lint typecheck test fmt dashboard dashboard-check ui-check
 
 check: lint typecheck test
 
@@ -23,3 +23,7 @@ dashboard:
 dashboard-check:
 	cd dashboard && npm ci && npx tsc --noEmit && npm run build
 	git diff --exit-code dashboard/dist
+
+# Drives the running router's dashboard in headless Chrome (real clicks, computed styles). Not part of `make check`.
+ui-check:
+	node dashboard/scripts/ui-check.mjs
