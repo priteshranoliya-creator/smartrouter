@@ -149,6 +149,9 @@ class Repo:
     def set_session_state(self, session_id: str, state: SessionState) -> None:
         self._write("UPDATE sessions SET state = ? WHERE id = ?", (state, session_id))
 
+    def set_last_switch_turn(self, session_id: str, seq: int) -> None:
+        self._write("UPDATE sessions SET last_switch_turn = ? WHERE id = ?", (seq, session_id))
+
     def mark_session_request(self, session_id: str, model: str, at: str) -> None:
         """A main request finished: it sets the current model and ends a compaction."""
         self._write(
@@ -227,6 +230,13 @@ class Repo:
         assert row is not None
         count: int = row[0]
         return count
+
+    def turn_fell_back(self, turn_id: int) -> bool:
+        """A request of the turn was refused on its routed model and retried as asked."""
+        row = self._one(
+            "SELECT 1 FROM requests WHERE turn_id = ? AND error LIKE 'fallback:%' LIMIT 1", (turn_id,)
+        )
+        return row is not None
 
     def mean_main_output_tokens(self, session_id: str) -> float | None:
         """Mean output tokens of the session's main requests that reported usage, None when there are none."""

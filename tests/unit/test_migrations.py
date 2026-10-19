@@ -47,10 +47,10 @@ def test_open_creates_missing_parent_dir_and_schema(tmp_path: Path) -> None:
 
 def test_migrate_twice_applies_nothing_new(tmp_path: Path) -> None:
     conn = connect(tmp_path / "r.db")
-    assert migrate(conn) == [1, 2]
+    assert migrate(conn) == [1, 2, 3]
     assert migrate(conn) == []
     rows = conn.execute("SELECT version, name FROM schema_migrations").fetchall()
-    assert [(r[0], r[1]) for r in rows] == [(1, "init"), (2, "eval_errors")]
+    assert [(r[0], r[1]) for r in rows] == [(1, "init"), (2, "eval_errors"), (3, "request_overhead")]
 
 
 def test_journal_mode_is_wal(tmp_path: Path) -> None:
@@ -138,10 +138,25 @@ def test_migration_002_adds_error_to_existing_eval_results(tmp_path: Path) -> No
         "INSERT INTO eval_results (run_id, item_id, arm, model_used, answer) "
         "VALUES (1, 'g-0001', 'a', 'm', 'x')"
     )
-    assert migrate(conn) == [2]
+    assert migrate(conn) == [2, 3]
     row = conn.execute("SELECT answer, error FROM eval_results").fetchone()
     assert (row["answer"], row["error"]) == ("x", None)
     conn.execute(
         "INSERT INTO eval_results (run_id, item_id, arm, model_used, answer, error) "
         "VALUES (1, 'g-0002', 'a', 'm', '', 'boom')"
     )
+
+
+def test_migration_003_adds_overhead_to_existing_requests(tmp_path: Path) -> None:
+    upto_002 = tmp_path / "m"
+    upto_002.mkdir()
+    for name in ("001_init.sql", "002_eval_errors.sql"):
+        (upto_002 / name).write_text((MIGRATIONS_DIR / name).read_text())
+    conn = connect(tmp_path / "r.db")
+    assert migrate(conn, upto_002) == [1, 2]
+    conn.execute(
+        "INSERT INTO requests (kind, requested_model, sent_model, provider, cost_usd, created_at) "
+        "VALUES ('main', 'm', 'm', 'anthropic', 0.0, 't')"
+    )
+    assert migrate(conn) == [3]
+    assert conn.execute("SELECT overhead_ms FROM requests").fetchone()["overhead_ms"] is None

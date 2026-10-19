@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from smartrouter.decision.engine import EngineError
 from smartrouter.decision.runtime import switch_mode
 from smartrouter.eval import report as eval_report
+from smartrouter.settings import ACTIVE_NOT_ALLOWED
 from smartrouter.telemetry import stats
 from smartrouter.telemetry.models import Decision, RequestRow, Session
 from smartrouter.telemetry.repo import Repo
@@ -24,7 +25,6 @@ router = APIRouter()
 
 WindowParam = Literal["15m", "1h", "24h", "7d", "30d", "all"]
 MODES = ("off", "shadow", "active")
-ACTIVE_UNAVAILABLE = "active mode is not available until T6.2 is approved"
 UPSTREAM_PROBE_TTL_S = 30.0
 UPSTREAM_PROBE_TIMEOUT_S = 2.0
 
@@ -173,8 +173,8 @@ def get_mode(request: Request) -> dict[str, str]:
 
 @router.put("/api/mode")
 async def put_mode(body: ModeBody, request: Request) -> Response:
-    if body.mode == "active":
-        return JSONResponse({"error": ACTIVE_UNAVAILABLE}, status_code=409)
+    if body.mode == "active" and not request.app.state.settings.router.allow_active:
+        return JSONResponse({"error": ACTIVE_NOT_ALLOWED}, status_code=409)
     try:
         await switch_mode(request.app.state, body.mode)
     except EngineError as exc:

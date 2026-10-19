@@ -10,7 +10,7 @@ import respx
 from fastapi import FastAPI
 
 from smartrouter.app import create_app
-from smartrouter.settings import Engine, Mode
+from smartrouter.settings import ACTIVE_NOT_ALLOWED, Engine, Mode
 from smartrouter.telemetry.models import EvalRun, Session
 from smartrouter.telemetry.repo import Repo
 from tests.integration.test_proxy import settings_with_db
@@ -405,7 +405,7 @@ async def test_active_mode_is_refused_and_leaves_the_mode_alone(tmp_path: Path) 
         resp = await s.client.put("/api/mode", json={"mode": "active"})
         mode = (await s.client.get("/api/mode")).json()
     assert resp.status_code == 409
-    assert resp.json() == {"error": "active mode is not available until T6.2 is approved"}
+    assert resp.json() == {"error": ACTIVE_NOT_ALLOWED}
     assert mode == {"mode": "shadow"}
 
 

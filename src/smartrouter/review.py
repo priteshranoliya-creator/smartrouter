@@ -152,27 +152,18 @@ def payback_check(facts: Sequence[DecisionFact], rows: Sequence[RequestRow], tar
 
 
 def added_latencies(facts: Sequence[DecisionFact], rows: Sequence[RequestRow]) -> list[float]:
-    """Per decided turn: how long its first main request would have waited for the decision.
+    """Per decided turn: how long the proxy held its first main request before forwarding it.
 
-    The decision starts when the prompt hook fires; the wait is whatever is left of the engine's
-    latency when the request arrives.
+    The decision never holds a request (tdd-changes #28), so this is the router's own overhead,
+    measured the same way in shadow and active mode. Requests logged before T6.2 have none.
     """
-    first_main: dict[int, str] = {}
+    first_main: dict[int, float | None] = {}
     for row in rows:
         req = row.request
         if req.kind == "main" and req.turn_id is not None and req.turn_id not in first_main:
-            first_main[req.turn_id] = req.created_at
-    waits: list[float] = []
-    for fact in facts:
-        engine_ms = fact.decision.engine_latency_ms
-        arrived = first_main.get(fact.turn.id) if fact.turn.id is not None else None
-        if engine_ms is None or arrived is None:
-            continue
-        head_start = (
-            datetime.fromisoformat(arrived) - datetime.fromisoformat(fact.turn.created_at)
-        ).total_seconds() * 1000
-        waits.append(max(0.0, engine_ms - head_start))
-    return waits
+            first_main[req.turn_id] = req.overhead_ms
+    waits = [first_main.get(f.turn.id) for f in facts if f.turn.id is not None]
+    return [w for w in waits if w is not None]
 
 
 def latency_check(facts: Sequence[DecisionFact], rows: Sequence[RequestRow], targets: ReviewConfig) -> Check:

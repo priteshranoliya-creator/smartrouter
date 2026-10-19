@@ -14,7 +14,7 @@ from smartrouter.api import dashboard, decide, hooks, proxy, stream
 from smartrouter.decision.engine import DecisionEngine, EngineError
 from smartrouter.decision.factory import build_engine
 from smartrouter.decision.service import DecisionService
-from smartrouter.settings import ROOT, ConfigError, Mode, Settings, load_settings
+from smartrouter.settings import ACTIVE_NOT_ALLOWED, ROOT, ConfigError, Mode, Settings, load_settings
 from smartrouter.telemetry.events import EventBus
 from smartrouter.telemetry.pricing import load_pricing
 from smartrouter.telemetry.recorder import Recorder
@@ -32,6 +32,8 @@ def create_app(settings: Settings | None = None, engine: DecisionEngine | None =
         app.state.settings = settings or load_settings()
         engine_http = httpx.AsyncClient()
         mode = app.state.settings.router.mode
+        if mode is Mode.ACTIVE and not app.state.settings.router.allow_active:
+            raise ConfigError(ACTIVE_NOT_ALLOWED)
         try:
             active_engine = engine or (
                 None if mode is Mode.OFF else build_engine(app.state.settings, engine_http)

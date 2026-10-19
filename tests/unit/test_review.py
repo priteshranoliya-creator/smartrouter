@@ -77,6 +77,7 @@ def row(
     usage: bool = True,
     status: int = 200,
     error: str | None = None,
+    overhead: float | None = 2.0,
 ) -> RequestRow:
     return RequestRow(
         request=Request(
@@ -91,6 +92,7 @@ def row(
             counterfactual_cost_usd=counterfactual,
             status=status,
             error=error,
+            overhead_ms=overhead,
             created_at=at(created),
         ),
         mode="shadow",
@@ -178,28 +180,23 @@ def test_switch_paybacks(facts: list[DecisionFact], rows: list[RequestRow], expe
 # --- added latency ----------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("engine_ms", "request_at", "expected"),
-    [
-        (500.0, 0.2, [300.0]),  # 200 ms head start between hook and request
-        (100.0, 0.2, [0.0]),  # decision ready before the request arrives
-        (None, 0.2, []),
-    ],
-)
-def test_added_latency_is_what_is_left_of_the_decision(
-    engine_ms: float | None, request_at: float, expected: list[float]
+@pytest.mark.parametrize(("overhead", "expected"), [(3.0, [3.0]), (None, [])])
+def test_added_latency_is_the_time_the_proxy_held_the_request(
+    overhead: float | None, expected: list[float]
 ) -> None:
-    waits = added_latencies([fact(1, 1, OPUS, latency=engine_ms)], [row(1, 1.0, 1.0, created=request_at)])
+    """The decision never holds a request (tdd-changes #28): the wait is the proxy's own overhead,
+    from receiving the request to forwarding it. Rows logged before T6.2 have none and are left out."""
+    waits = added_latencies([fact(1, 1, OPUS, latency=900.0)], [row(1, 1.0, 1.0, overhead=overhead)])
     assert waits == pytest.approx(expected)
 
 
 def test_added_latency_uses_the_turns_first_main_request() -> None:
     rows = [
-        row(1, 0.1, None, kind="background", created=0.05),
-        row(1, 1, 1, created=0.4),
-        row(1, 1, 1, created=0.9),
+        row(1, 0.1, None, kind="background", created=0.05, overhead=9.0),
+        row(1, 1, 1, created=0.4, overhead=4.0),
+        row(1, 1, 1, created=0.9, overhead=7.0),
     ]
-    assert added_latencies([fact(1, 1, OPUS, latency=500.0)], rows) == pytest.approx([100.0])
+    assert added_latencies([fact(1, 1, OPUS)], rows) == pytest.approx([4.0])
 
 
 # --- visibility -------------------------------------------------------------------------------
@@ -284,7 +281,7 @@ def test_all_targets_met_but_too_little_data_is_no_go() -> None:
 
 def test_a_failing_target_is_named() -> None:
     inputs = passing_inputs(days=8)
-    inputs["targets"] = TARGETS.model_copy(update={"max_added_latency_p50_ms": 50})
+    inputs["targets"] = TARGETS.model_copy(update={"max_added_latency_p50_ms": 1})
     result = review(**inputs)  # type: ignore[arg-type]
     text = render(result, inputs["targets"])  # type: ignore[arg-type]
     assert not result.go

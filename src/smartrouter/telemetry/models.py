@@ -88,6 +88,7 @@ class Request:
     ttft_ms: float | None = None
     status: int | None = None
     error: str | None = None
+    overhead_ms: float | None = None  # time the proxy held the request before forwarding it
     created_at: str
 
 

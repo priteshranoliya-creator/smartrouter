@@ -136,8 +136,12 @@ class ReviewConfig(_Frozen):
     min_shadow_turns: Annotated[int, Field(ge=0)]
 
 
+ACTIVE_NOT_ALLOWED = "active mode needs `allow_active: true` in router.yaml, set only after the T6.1 sign-off"
+
+
 class RouterConfig(_Frozen):
     mode: Mode
+    allow_active: bool = False  # set by the owner after the T6.1 sign-off; gates `mode: active`
     server: ServerConfig
     upstream: UpstreamConfig
     paths: PathsConfig

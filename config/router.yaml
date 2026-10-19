@@ -1,4 +1,5 @@
 mode: shadow # off | shadow | active. Overridable with ROUTER_MODE.
+allow_active: false # true only after the owner signs docs/decisions/t6.1-go-no-go.md
 
 server: # loopback only; the loader rejects any other host
   host: 127.0.0.1

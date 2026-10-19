@@ -2,7 +2,7 @@
 
 A local router for Claude Code that picks the model (Haiku, Sonnet or Opus) for every prompt, weighing a decision model's answer against the cost of losing the prompt cache, and logs every decision, token and dollar to a local dashboard.
 
-**Status:** proof of concept, running in shadow mode (decides and logs, changes nothing). M0–M5 done.
+**Status:** proof of concept, running in shadow mode (decides and logs, changes nothing). M0–M5, T6.1–T6.3 built. Active mode (rewrites the model of main requests, never waits for the decision) is built but stays off until `allow_active: true` is set in `config/router.yaml` after the T6.1 sign-off.
 
 ![smartrouter dashboard](docs/img/dashboard.png)
 

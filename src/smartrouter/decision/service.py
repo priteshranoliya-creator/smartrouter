@@ -1,7 +1,8 @@
 """Per-turn decisions: engine, then policy, run in the background and joined by the proxy.
 
-`start` is called when the prompt hook fires. The proxy awaits `outcome` only after it has
-forwarded the request, so shadow mode adds no latency. The decision row itself is written by the
+`start` is called when the prompt hook fires. The proxy never waits for it: in active mode a
+request uses the decision only once it is `ready` (tdd-changes #28), and the recorder awaits
+`outcome` after the request has been forwarded. The decision row itself is written by the
 recorder (see `DecisionService.decision_row`).
 """
 
@@ -105,6 +106,21 @@ class DecisionService:
         except TimeoutError:
             return None
 
+    def ready(self, turn_id: int) -> Outcome | None:
+        """The turn's decision if the engine has already answered. Never waits."""
+        pending = self._pending.get(turn_id)
+        if pending is None or not pending.task.done() or pending.task.cancelled():
+            return None
+        return pending.task.result()
+
+    def tier_model(self, tier: str) -> str | None:
+        """The model of a tier name (an override like `sonnet`), None for anything else."""
+        config = self._tiers.get(tier)
+        return None if config is None else config.model
+
+    def is_tier_model(self, model: str | None) -> bool:
+        return model in self._tier_by_model
+
     def release(self, turn_id: int) -> None:
         pending = self._pending.pop(turn_id, None)
         if pending is None:
@@ -118,14 +134,15 @@ class DecisionService:
             self.release(turn_id)
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    def decision_row(self, turn_id: int, outcome: Outcome | None, requested_model: str) -> DecisionRow:
-        """The turn's decisions row. With no outcome the request stands and the rule is decision_timeout."""
+    def decision_row(self, turn_id: int, outcome: Outcome | None, standing_model: str) -> DecisionRow:
+        """The turn's decisions row. With no outcome the model the turn's first request ran on stands
+        and the rule is decision_timeout."""
         if outcome is None:
             return DecisionRow(
                 turn_id=turn_id,
                 engine=self._engine.name,
                 answers={},
-                chosen_model=requested_model,
+                chosen_model=standing_model,
                 rule="decision_timeout",
                 mode=self.mode,
             )
@@ -138,7 +155,7 @@ class DecisionService:
             },
             engine_latency_ms=outcome.decision.latency_ms,
             desired_model=outcome.desired_model,
-            chosen_model=outcome.chosen_model or requested_model,
+            chosen_model=outcome.chosen_model or standing_model,
             rule=outcome.policy.rule,
             mode=self.mode,
             est_switch_tax_usd=outcome.policy.est_switch_tax_usd,
