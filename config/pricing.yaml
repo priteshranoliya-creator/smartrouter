@@ -1,0 +1,63 @@
+# USD per 1M tokens, standard (non-batch) tier. Code never hard-codes these.
+# A model is a flat price, a list of prompt-length `tiers`, or a list of dated `periods`
+# (each period flat or tiered). `verified: true` means checked against `source` on `checked_on`.
+
+providers:
+  anthropic:
+    source: https://platform.claude.com/docs/en/about-claude/pricing
+    checked_on: 2026-10-19
+    cache_write_multiplier: { 5m: 1.25, 1h: 2.0 }
+  gemini:
+    source: https://ai.google.dev/gemini-api/docs/pricing
+    checked_on: 2026-10-19
+    # implicit caching: no write premium; explicit-cache storage ($/hr) is not used by the router
+    cache_write_multiplier: { 5m: 1.0, 1h: 1.0 }
+
+# usage.inference_geo values that bill above standard (Claude 4.6+ US-only inference)
+geo_multiplier: { us: 1.1 }
+
+models:
+  claude-opus-5-5: { provider: anthropic, verified: true, input: 4.00, cache_read: 0.20, output: 20.00 }
+  claude-sonnet-5-5: { provider: anthropic, verified: true, input: 2.00, cache_read: 0.10, output: 10.00 }
+  claude-haiku-5-5:
+    provider: anthropic
+    verified: true
+    tiers: # prompt length counts input + cache reads + cache writes
+      - { max_prompt_tokens: 100000, input: 0.10, cache_read: 0.01, output: 0.50 }
+      - { max_prompt_tokens: null, input: 0.50, cache_read: 0.05, output: 2.50 }
+
+  gemini-4-argon:
+    provider: gemini
+    verified: true
+    periods:
+      - { until: 2026-11-30, input: 2.00, cache_read: 0.10, output: 10.00 }
+      - { from: 2026-12-01, input: 4.00, cache_read: 0.20, output: 20.00 }
+  gemini-3.8-flash:
+    provider: gemini
+    verified: true
+    periods:
+      - { until: 2026-12-31, input: 0.75, cache_read: 0.075, output: 3.75 }
+      - { from: 2027-01-01, input: 1.50, cache_read: 0.15, output: 7.50 }
+  gemini-3.6-flash:
+    provider: gemini
+    verified: true
+    periods:
+      - { until: 2026-12-31, input: 0.75, cache_read: 0.075, output: 3.75 }
+      - { from: 2027-01-01, input: 1.50, cache_read: 0.15, output: 7.50 }
+  gemini-3.5-flash-lite: { provider: gemini, verified: true, input: 0.30, cache_read: 0.03, output: 2.50 }
+  gemini-3.1-flash-lite: { provider: gemini, verified: true, input: 0.25, cache_read: 0.025, output: 1.50 }
+  gemini-3.1-pro-preview:
+    provider: gemini
+    verified: true
+    tiers:
+      - { max_prompt_tokens: 200000, input: 2.00, cache_read: 0.20, output: 12.00 }
+      - { max_prompt_tokens: null, input: 4.00, cache_read: 0.40, output: 18.00 }
+  gemini-3-flash-preview: { provider: gemini, verified: true, input: 0.50, cache_read: 0.05, output: 3.00 }
+  gemini-2.5-pro:
+    provider: gemini
+    verified: true
+    tiers:
+      - { max_prompt_tokens: 200000, input: 1.25, cache_read: 0.125, output: 10.00 }
+      - { max_prompt_tokens: null, input: 2.50, cache_read: 0.25, output: 15.00 }
+  gemini-2.5-flash: { provider: gemini, verified: true, input: 0.30, cache_read: 0.03, output: 2.50 }
+  gemini-2.5-flash-lite: { provider: gemini, verified: true, input: 0.10, cache_read: 0.01, output: 0.40 }
