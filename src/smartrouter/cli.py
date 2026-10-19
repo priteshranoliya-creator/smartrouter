@@ -275,6 +275,42 @@ def eval_run(
         typer.echo(format_summary(summarize(repo.list_eval_results(run_id))))
 
 
+@eval_app.command("report")
+def eval_report(
+    run: Annotated[int | None, typer.Option("--run", help="Run id (default: the latest run).")] = None,
+) -> None:
+    """Print an eval run's report and write it to data/reports/run-N.md."""
+    from smartrouter.eval.report import render_run_report, run_report
+
+    settings = load_settings()
+    db = settings.path("db")
+    if not db.exists():
+        typer.echo(f"error: no database at {db}", err=True)
+        raise typer.Exit(1)
+    with Repo.open(db) as repo:
+        if run is None:
+            runs = repo.list_eval_runs()
+            if not runs:
+                typer.echo("error: no eval runs yet; start one with `router eval run`", err=True)
+                raise typer.Exit(1)
+            chosen = runs[0]
+        else:
+            found = repo.get_eval_run(run)
+            if found is None:
+                typer.echo(f"error: no eval run {run}", err=True)
+                raise typer.Exit(2)
+            chosen = found
+        assert chosen.id is not None
+        text = render_run_report(
+            run_report(chosen, repo.list_eval_results(chosen.id), list(settings.router.tiers))
+        )
+        run_id = chosen.id
+    reports = settings.path("reports")
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / f"run-{run_id}.md").write_text(text, encoding="utf-8")
+    typer.echo(text)
+
+
 @eval_app.command("calibrate")
 def eval_calibrate(
     dataset: DatasetOption = DEFAULT_DATASET,

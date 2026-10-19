@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from smartrouter.decision.engine import EngineError
 from smartrouter.decision.runtime import switch_mode
+from smartrouter.eval import report as eval_report
 from smartrouter.telemetry import stats
 from smartrouter.telemetry.models import Decision, RequestRow, Session
 from smartrouter.telemetry.repo import Repo
@@ -132,8 +133,20 @@ def stats_endpoint(request: Request, window: WindowParam = "all") -> dict[str, A
 
 @router.get("/api/eval/runs")
 def eval_runs(request: Request) -> list[dict[str, Any]]:
+    """Newest first. `summary` is the per-arm summary, `arms` the run's arm names."""
     repo: Repo = request.app.state.repo
-    return [asdict(run) for run in repo.list_eval_runs()]
+    out = []
+    for run in repo.list_eval_runs():
+        assert run.id is not None
+        results = repo.list_eval_results(run.id)
+        out.append(
+            {
+                **asdict(run),
+                "n_items": len({r.item_id for r in results}),
+                "summary": [asdict(s) for s in eval_report.summarize(results)],
+            }
+        )
+    return out
 
 
 @router.get("/api/eval/runs/{run_id}")
@@ -142,7 +155,9 @@ def eval_run(run_id: int, request: Request) -> Response:
     run = repo.get_eval_run(run_id)
     if run is None:
         return JSONResponse({"error": f"unknown eval run {run_id}"}, status_code=404)
-    return JSONResponse({**asdict(run), "results": [asdict(r) for r in repo.list_eval_results(run_id)]})
+    tiers = list(request.app.state.settings.router.tiers)
+    report = eval_report.run_report(run, repo.list_eval_results(run_id), tiers)
+    return JSONResponse(asdict(report))
 
 
 class ModeBody(BaseModel):

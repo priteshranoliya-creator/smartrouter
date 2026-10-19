@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from smartrouter.telemetry.models import Decision, Request, Session, Turn
+from smartrouter.telemetry.models import Decision, EvalResult, EvalRun, Request, Session, Turn
 from smartrouter.telemetry.repo import Repo
 
 OPUS = "claude-opus-5-5"
@@ -171,3 +171,107 @@ def seed(repo: Repo, now: datetime) -> None:
     request("r6", "sess-b", "B1", "main", HAIKU, HAIKU, (20, 10, 100, 0, 0), 0.10, 0.80)
     request("r7", "sess-b", "B2", "main", OPUS, OPUS, (400, 200, 4000, 0, 0), 5.00, 5.00)
     request("r8", "sess-b", "B3", "main", OPUS, SONNET, (500, 250, 5000, 0, 500), 1.00, 4.00)
+
+
+# Eval run, one row per (item, arm). The router and oracle arms answer with their tier's model, so a
+# shared model repeats its cost and latency. Cell: (model, score, cost, latency ms).
+Cell = tuple[str, float, float, float]
+_COST = {"haiku": (HAIKU, 2e-3, 100.0), "sonnet": (SONNET, 6e-3, 200.0), "opus": (OPUS, 2e-2, 400.0)}
+
+
+def _cell(tier: str, score: float) -> Cell:
+    model, cost, latency = _COST[tier]
+    return (model, score, cost, latency)
+
+
+EVAL_ARMS = ["haiku", "opus", "router", "oracle"]
+# (item, expected tier, router tier, {arm: cell}); the haiku arm is always haiku, the opus arm always opus
+EVAL_ITEMS: list[tuple[str, str, str, dict[str, Cell]]] = [
+    (
+        "g-0001",
+        "haiku",
+        "haiku",
+        {
+            "haiku": _cell("haiku", 1.0),
+            "opus": _cell("opus", 1.0),
+            "router": _cell("haiku", 1.0),
+            "oracle": _cell("haiku", 1.0),
+        },
+    ),
+    (
+        "g-0002",
+        "sonnet",
+        "haiku",
+        {
+            "haiku": _cell("haiku", 0.4),
+            "opus": _cell("opus", 1.0),
+            "router": _cell("haiku", 0.4),
+            "oracle": _cell("sonnet", 0.8),
+        },
+    ),
+    (
+        "g-0003",
+        "opus",
+        "opus",
+        {
+            "haiku": _cell("haiku", 0.0),
+            "opus": _cell("opus", 1.0),
+            "router": _cell("opus", 1.0),
+            "oracle": _cell("opus", 1.0),
+        },
+    ),
+    (
+        "g-0004",
+        "sonnet",
+        "sonnet",
+        {
+            "haiku": _cell("haiku", 0.8),
+            "opus": _cell("opus", 1.0),
+            "router": _cell("sonnet", 0.8),
+            "oracle": _cell("sonnet", 0.8),
+        },
+    ),
+]
+# (item, arm) rows the second judge re-graded, and what it said.
+EVAL_REJUDGED = {("g-0002", "haiku"): False, ("g-0001", "opus"): False}
+
+
+def seed_eval_run(repo: Repo, started_at: str = "2026-10-19T10:00:00+00:00") -> int:
+    """A finished run with the table above. By hand: haiku mean score 0.55, router 0.8, oracle 0.9, opus 1.0;
+    routing accuracy 3/4; the second judge agrees on 1 of its 2 rows."""
+    run_id = repo.insert_eval_run(
+        EvalRun(dataset_version="v1", arms=EVAL_ARMS, judge_model="judge-m", started_at=started_at)
+    )
+    for item_id, expected, predicted, by_arm in EVAL_ITEMS:
+        for arm in EVAL_ARMS:
+            model, score, cost, latency = by_arm[arm]
+            rubric: dict[str, object] = {
+                "judge": {
+                    "model": "judge-m",
+                    "score": score,
+                    "pass": score >= 0.7,
+                    "points": [
+                        {"index": 1, "verdict": "hit" if score >= 0.5 else "miss", "reason": "r1"},
+                        {"index": 2, "verdict": "hit" if score >= 0.7 else "wrong", "reason": "r2"},
+                    ],
+                }
+            }
+            if (item_id, arm) in EVAL_REJUDGED:
+                rubric["rejudge"] = {"model": "judge-2", "pass": EVAL_REJUDGED[(item_id, arm)]}
+            repo.insert_eval_result(
+                EvalResult(
+                    run_id=run_id,
+                    item_id=item_id,
+                    arm=arm,
+                    model_used=model,
+                    answer=f"{arm} answers {item_id}",
+                    judge_score=score,
+                    rubric_hits=rubric,
+                    cost_usd=cost,
+                    latency_ms=latency,
+                    expected_tier=expected,
+                    predicted_tier=predicted,
+                )
+            )
+    repo.finish_eval_run(run_id, "2026-10-19T10:30:00+00:00")
+    return run_id

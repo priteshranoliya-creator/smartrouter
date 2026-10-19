@@ -11,7 +11,7 @@ from fastapi import FastAPI
 
 from smartrouter.app import create_app
 from smartrouter.settings import Engine, Mode
-from smartrouter.telemetry.models import EvalResult, EvalRun, Session
+from smartrouter.telemetry.models import EvalRun, Session
 from smartrouter.telemetry.repo import Repo
 from tests.integration.test_proxy import settings_with_db
 from tests.integration.test_shadow import WANTS_OPUS, ScriptedEngine, serving, shadow_settings
@@ -24,7 +24,7 @@ from tests.integration.test_tracking import (
     prompt,
     send,
 )
-from tests.seeded import HAIKU, OPUS, REQUEST_AGES, SONNET, seed
+from tests.seeded import EVAL_ARMS, HAIKU, OPUS, REQUEST_AGES, SONNET, seed, seed_eval_run
 
 NOW = datetime.now(UTC)
 
@@ -326,38 +326,70 @@ async def test_unknown_window_is_422(client: httpx.AsyncClient, window: str) -> 
     assert (await client.get("/api/stats", params={"window": window})).status_code == 422
 
 
-async def test_eval_runs_are_empty_until_a_run_exists(client: httpx.AsyncClient, app: FastAPI) -> None:
+async def test_eval_runs_are_empty_until_a_run_exists(client: httpx.AsyncClient) -> None:
     assert (await client.get("/api/eval/runs")).json() == []
     assert (await client.get("/api/eval/runs/1")).status_code == 404
+
+
+async def test_eval_run_list_has_a_summary_per_arm_newest_first(
+    client: httpx.AsyncClient, app: FastAPI
+) -> None:
     repo: Repo = app.state.repo
-    first = repo.insert_eval_run(
-        EvalRun(dataset_version="v1", arms=["opus", "haiku"], judge_model="gemini-pro", started_at="t1")
-    )
+    first = seed_eval_run(repo)
     second = repo.insert_eval_run(
-        EvalRun(dataset_version="v1", arms=["opus"], judge_model="gemini-pro", started_at="t2")
-    )
-    repo.insert_eval_result(
-        EvalResult(
-            run_id=first,
-            item_id="q1",
-            arm="opus",
-            model_used=OPUS,
-            answer="42",
-            judge_score=0.9,
-            rubric_hits={"a": True},
-            expected_tier="opus",
-            predicted_tier="sonnet",
-        )
+        EvalRun(dataset_version="v2", arms=["opus"], judge_model="j", started_at="t2")
     )
     runs = (await client.get("/api/eval/runs")).json()
     assert [r["id"] for r in runs] == [second, first]
-    assert runs[1]["arms"] == ["opus", "haiku"]
-    detail = (await client.get(f"/api/eval/runs/{first}")).json()
-    assert detail["dataset_version"] == "v1"
-    (result,) = detail["results"]
-    assert (result["item_id"], result["judge_score"], result["rubric_hits"]) == ("q1", 0.9, {"a": True})
-    assert (result["expected_tier"], result["predicted_tier"]) == ("opus", "sonnet")
-    assert (await client.get(f"/api/eval/runs/{second}")).json()["results"] == []
+    assert (runs[0]["n_items"], runs[0]["summary"]) == (0, [])
+    older = runs[1]
+    assert (older["arms"], older["n_items"], older["judge_model"]) == (EVAL_ARMS, 4, "judge-m")
+    by_arm = {s["arm"]: s for s in older["summary"]}
+    assert list(by_arm) == EVAL_ARMS
+    assert by_arm["router"]["mean_score"] == pytest.approx(0.8)
+    assert by_arm["router"]["total_cost_usd"] == pytest.approx(0.03)
+    assert by_arm["router"]["mean_cost_usd"] == pytest.approx(0.0075)
+
+
+async def test_eval_run_detail_matches_the_report_functions(client: httpx.AsyncClient, app: FastAPI) -> None:
+    repo: Repo = app.state.repo
+    run_id = seed_eval_run(repo)
+    detail = (await client.get(f"/api/eval/runs/{run_id}")).json()
+
+    assert set(detail) == {"run", "arms", "quality_cost", "routing", "agreement", "items"}
+    assert detail["run"]["dataset_version"] == "v1"
+    assert detail["run"]["arms"] == EVAL_ARMS
+    assert [a["arm"] for a in detail["arms"]] == EVAL_ARMS
+    assert detail["arms"][2]["pass_rate"] == pytest.approx(0.75)
+    assert {p["arm"]: p["mean_score"] for p in detail["quality_cost"]}["oracle"] == pytest.approx(0.9)
+    assert detail["routing"]["tiers"] == ["haiku", "sonnet", "opus"]
+    assert detail["routing"]["n"] == 4
+    assert detail["routing"]["accuracy"] == pytest.approx(0.75)
+    assert detail["routing"]["confusion"]["sonnet"] == {"haiku": 1, "sonnet": 1, "opus": 0}
+    assert detail["agreement"] == {"n": 2, "rate": 0.5}
+
+    items = detail["items"]
+    assert [i["item_id"] for i in items] == ["g-0001", "g-0002", "g-0003", "g-0004"]
+    second = items[1]
+    assert (second["expected_tier"], second["predicted_tier"]) == ("sonnet", "haiku")
+    assert list(second["arms"]) == EVAL_ARMS
+    router = second["arms"]["router"]
+    assert router["answer"] == "router answers g-0002"
+    assert (router["score"], router["passed"], router["cost_usd"], router["latency_ms"]) == (
+        0.4,
+        False,
+        0.002,
+        100.0,
+    )
+    assert router["model_used"] == HAIKU
+    assert router["rubric"]["judge"]["points"][1] == {"index": 2, "verdict": "wrong", "reason": "r2"}
+    assert second["arms"]["haiku"]["rubric"]["rejudge"]["pass"] is False
+
+
+async def test_unknown_eval_run_is_404(client: httpx.AsyncClient) -> None:
+    res = await client.get("/api/eval/runs/99")
+    assert res.status_code == 404
+    assert res.json() == {"error": "unknown eval run 99"}
 
 
 async def test_mode_get_and_put(client: httpx.AsyncClient) -> None:

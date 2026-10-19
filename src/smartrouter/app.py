@@ -20,7 +20,8 @@ from smartrouter.telemetry.pricing import load_pricing
 from smartrouter.telemetry.recorder import Recorder
 from smartrouter.telemetry.repo import Repo
 
-DASHBOARD_DIR = ROOT / "dashboard"
+DASHBOARD_DIR = ROOT / "dashboard/dist"  # built by `make dashboard` and committed
+ASSETS_PATH = "/ui"  # the Vite `base`; mounted ahead of the proxy catch-all
 
 
 def create_app(settings: Settings | None = None, engine: DecisionEngine | None = None) -> FastAPI:
@@ -71,7 +72,7 @@ def create_app(settings: Settings | None = None, engine: DecisionEngine | None =
     def index() -> FileResponse:
         return FileResponse(DASHBOARD_DIR / "index.html")
 
-    app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
+    app.mount(ASSETS_PATH, StaticFiles(directory=DASHBOARD_DIR), name="dashboard")
 
     app.include_router(dashboard.router)
     app.include_router(stream.router)

@@ -24,3 +24,7 @@ spikes/**/*.log
 .DS_Store
 .idea/
 .vscode/
+
+# dashboard
+node_modules/
+!dashboard/dist/
