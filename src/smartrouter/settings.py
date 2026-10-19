@@ -294,6 +294,6 @@ def load_settings(config_dir: Path = ROOT / "config", env: Mapping[str, str] | N
     secrets = Secrets(
         _env_file=None,
         scaledown_api_key=env.get("SCALEDOWN_API_KEY") or None,
-        gemini_api_key=env.get("GEMINI_API_KEY") or None,
+        gemini_api_key=env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY") or None,
     )
     return Settings(router=router, questions=questions, secrets=secrets)

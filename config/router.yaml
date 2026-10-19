@@ -40,12 +40,13 @@ policy:
   expected_turns_min_sessions: 20 # sessions needed before using the logged estimate
 
 eval:
-  judge: gemini-pro # an arm name
+  judge: gemini-argon # an arm name; a non-Claude judge so no Claude model grades its own family
   rejudge_arm: opus # arm that re-judges a sample of answers
   rejudge_fraction: 0.1
   arms: # arm name -> model id
     opus: claude-opus-5-5
     sonnet: claude-sonnet-5-5
     haiku: claude-haiku-5-5
+    gemini-argon: gemini-4-argon
     gemini-flash: gemini-3.8-flash
-    gemini-pro: gemini-3.1-pro-preview
+    gemini-flash-lite: gemini-3.1-flash-lite # cheapest; no thinking tokens
