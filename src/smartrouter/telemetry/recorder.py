@@ -75,7 +75,7 @@ class Recorder:
         self._repo = repo
         self._prices = prices
         self._bus = bus
-        self._decisions = decisions
+        self.decisions = decisions  # replaced when the runtime mode changes
 
     async def arecord(self, ex: Exchange) -> int | None:
         """Record the exchange. A turn's first main request waits for the turn's decision, to its deadline."""
@@ -83,7 +83,7 @@ class Recorder:
             return None
         resolved = self._resolve(ex)
         turn = resolved.turn
-        decisions = self._decisions
+        decisions = self.decisions
         if (
             decisions is None
             or resolved.kind != "main"
@@ -120,12 +120,12 @@ class Recorder:
     def _turn_choice(self, ex: Exchange, resolved: _Resolved, outcome: Outcome | None) -> str | None:
         """The model the turn's decision chose, writing the decision on the turn's first main request."""
         turn = resolved.turn
-        if self._decisions is None or resolved.kind != "main" or turn is None or turn.id is None:
+        if self.decisions is None or resolved.kind != "main" or turn is None or turn.id is None:
             return None
         existing = self._repo.get_decision(turn.id)
         if existing is not None:
             return existing.chosen_model
-        row = self._decisions.decision_row(turn.id, outcome, ex.request_model or "unknown")
+        row = self.decisions.decision_row(turn.id, outcome, ex.request_model or "unknown")
         if self._repo.insert_decision_if_absent(row):
             self._bus.publish(Event("decision", asdict(row)))
         return row.chosen_model
@@ -151,14 +151,14 @@ class Recorder:
             return None
 
     def _warm_prefix(self, session: Session | None, model: str, now: datetime) -> int:
-        assert self._decisions is not None
+        assert self.decisions is not None
         if session is None:
             return 0
         used = self._repo.get_session_model(session.id, model)
         if used is None:
             return 0
         idle = (now - datetime.fromisoformat(used.last_used_at)).total_seconds()
-        return (used.prefix_tokens or 0) if idle <= self._decisions.cache_ttl_s else 0
+        return (used.prefix_tokens or 0) if idle <= self.decisions.cache_ttl_s else 0
 
     def _resolve(self, ex: Exchange) -> _Resolved:
         headers = ex.request_headers

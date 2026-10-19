@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
-from smartrouter.api import decide, hooks, proxy
+from smartrouter.api import dashboard, decide, hooks, proxy, stream
 from smartrouter.decision.engine import DecisionEngine, EngineError
 from smartrouter.decision.factory import build_engine
 from smartrouter.decision.service import DecisionService
@@ -26,21 +26,24 @@ def create_app(settings: Settings | None = None, engine: DecisionEngine | None =
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = settings or load_settings()
         engine_http = httpx.AsyncClient()
+        mode = app.state.settings.router.mode
         try:
-            active_engine = (
-                None
-                if app.state.settings.router.mode is Mode.OFF
-                else (engine or build_engine(app.state.settings, engine_http))
+            active_engine = engine or (
+                None if mode is Mode.OFF else build_engine(app.state.settings, engine_http)
             )
         except EngineError as exc:
             await engine_http.aclose()
             raise ConfigError(str(exc)) from None
+        app.state.engine = active_engine
+        app.state.engine_http = engine_http
+        app.state.mode = mode.value
+        app.state.upstream_probe = None
         app.state.repo = Repo.open(app.state.settings.path("db"))
         app.state.prices = load_pricing(ROOT / "config/pricing.yaml")
         app.state.bus = EventBus()
         app.state.decisions = (
             None
-            if active_engine is None
+            if active_engine is None or mode is Mode.OFF
             else DecisionService(active_engine, app.state.settings, app.state.prices, app.state.repo)
         )
         app.state.recorder = Recorder(app.state.repo, app.state.prices, app.state.bus, app.state.decisions)
@@ -60,10 +63,8 @@ def create_app(settings: Settings | None = None, engine: DecisionEngine | None =
 
     app = FastAPI(title="smartrouter", lifespan=lifespan)
 
-    @app.get("/healthz")
-    async def healthz() -> dict[str, str]:
-        return {"status": "ok"}
-
+    app.include_router(dashboard.router)
+    app.include_router(stream.router)
     app.include_router(decide.router)
     app.include_router(hooks.router)
     app.include_router(proxy.router)

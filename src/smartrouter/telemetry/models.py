@@ -124,3 +124,23 @@ class EvalResult:
     latency_ms: float | None = None
     expected_tier: str | None = None
     predicted_tier: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class RequestRow:
+    """A request with the facts of its turn's decision, when it has one."""
+
+    request: Request
+    turn_seq: int | None = None
+    mode: Mode | None = None
+    rule: Rule | None = None
+    chosen_model: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DecisionFact:
+    """A decision with its turn and the model its turn's first main request asked for."""
+
+    decision: Decision
+    turn: Turn
+    first_main_requested_model: str | None = None

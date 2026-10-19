@@ -73,10 +73,7 @@ class DecisionService:
         self._context = PolicyContext(config=router.policy, tiers=router.tiers, book=book)
         self._deadline_s = router.decision.deadline_ms / 1000
         self._pending: dict[int, _Pending] = {}
-
-    @property
-    def mode(self) -> Mode:
-        return self._settings.router.mode.value
+        self.mode: Mode = settings.router.mode.value
 
     @property
     def cache_ttl_s(self) -> int:

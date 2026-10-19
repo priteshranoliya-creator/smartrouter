@@ -16,9 +16,11 @@ from smartrouter.telemetry.db import connect, migrate
 from smartrouter.telemetry.models import (
     Compaction,
     Decision,
+    DecisionFact,
     EvalResult,
     EvalRun,
     Request,
+    RequestRow,
     Session,
     SessionModel,
     SessionState,
@@ -50,7 +52,8 @@ def _values(row: _RowModel, json_cols: Collection[str]) -> dict[str, Any]:
 
 
 def _load(cls: type[_R], row: sqlite3.Row, json_cols: Collection[str] = frozenset()) -> _R:
-    data = dict(row)
+    names = {f.name for f in fields(cls)}
+    data = {k: v for k, v in dict(row).items() if k in names}
     for col in json_cols:
         if data[col] is not None:
             data[col] = json.loads(data[col])
@@ -269,3 +272,101 @@ class Repo:
     def list_eval_results(self, run_id: int) -> list[EvalResult]:
         rows = self._all("SELECT * FROM eval_results WHERE run_id = ? ORDER BY id", (run_id,))
         return [_load(EvalResult, r, _RUBRIC_HITS) for r in rows]
+
+    def write_probe(self) -> bool:
+        """True when the database accepts a write transaction (taken and rolled back at once)."""
+        try:
+            with self._lock:
+                self._conn.execute("BEGIN IMMEDIATE")
+                self._conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            return False
+        return True
+
+    def list_sessions(self) -> list[Session]:
+        return [_load(Session, r) for r in self._all("SELECT * FROM sessions ORDER BY id", ())]
+
+    def turn_counts(self) -> dict[str, int]:
+        rows = self._all("SELECT session_id, COUNT(*) FROM turns GROUP BY session_id", ())
+        return {r[0]: r[1] for r in rows}
+
+    def count_turns(self, since: str | None = None) -> int:
+        row = self._one("SELECT COUNT(*) FROM turns WHERE (? IS NULL OR created_at >= ?)", (since, since))
+        assert row is not None
+        count: int = row[0]
+        return count
+
+    def count_sessions(self, since: str | None = None) -> int:
+        """Sessions with a turn or a request in the window."""
+        row = self._one(
+            "SELECT COUNT(*) FROM ("
+            "SELECT session_id FROM turns WHERE (? IS NULL OR created_at >= ?) "
+            "UNION SELECT session_id FROM requests "
+            "WHERE session_id IS NOT NULL AND (? IS NULL OR created_at >= ?))",
+            (since, since, since, since),
+        )
+        assert row is not None
+        count: int = row[0]
+        return count
+
+    def request_rows(self, since: str | None = None, session_id: str | None = None) -> list[RequestRow]:
+        """Requests created at or after `since` (ISO UTC), optionally one session's, oldest first."""
+        rows = self._all(
+            "SELECT r.*, t.seq AS turn_seq, d.mode AS decision_mode, d.rule AS decision_rule, "
+            "d.chosen_model AS decision_chosen_model "
+            "FROM requests r LEFT JOIN turns t ON t.id = r.turn_id "
+            "LEFT JOIN decisions d ON d.turn_id = r.turn_id "
+            "WHERE (? IS NULL OR r.created_at >= ?) AND (? IS NULL OR r.session_id = ?) "
+            "ORDER BY r.created_at, r.id",
+            (since, since, session_id, session_id),
+        )
+        return [
+            RequestRow(
+                request=_load(Request, r),
+                turn_seq=r["turn_seq"],
+                mode=r["decision_mode"],
+                rule=r["decision_rule"],
+                chosen_model=r["decision_chosen_model"],
+            )
+            for r in rows
+        ]
+
+    def decision_facts(self, since: str | None = None) -> list[DecisionFact]:
+        """Decisions of turns created at or after `since`, oldest turn first."""
+        rows = self._all(
+            "SELECT d.*, t.id AS t_id, t.session_id AS t_session_id, t.seq AS t_seq, "
+            "t.prompt_id AS t_prompt_id, t.prompt AS t_prompt, t.override AS t_override, "
+            "t.created_at AS t_created_at, "
+            "(SELECT r.requested_model FROM requests r WHERE r.turn_id = t.id AND r.kind = 'main' "
+            "ORDER BY r.created_at, r.id LIMIT 1) AS first_main_requested_model "
+            "FROM decisions d JOIN turns t ON t.id = d.turn_id "
+            "WHERE (? IS NULL OR t.created_at >= ?) ORDER BY t.created_at, t.id",
+            (since, since),
+        )
+        return [
+            DecisionFact(
+                decision=_load(Decision, r, _ANSWERS),
+                turn=Turn(
+                    id=r["t_id"],
+                    session_id=r["t_session_id"],
+                    seq=r["t_seq"],
+                    prompt_id=r["t_prompt_id"],
+                    prompt=r["t_prompt"],
+                    override=r["t_override"],
+                    created_at=r["t_created_at"],
+                ),
+                first_main_requested_model=r["first_main_requested_model"],
+            )
+            for r in rows
+        ]
+
+    def session_decisions(self, session_id: str) -> list[Decision]:
+        rows = self._all(
+            "SELECT d.* FROM decisions d JOIN turns t ON t.id = d.turn_id WHERE t.session_id = ?",
+            (session_id,),
+        )
+        return [_load(Decision, r, _ANSWERS) for r in rows]
+
+    def list_eval_runs(self) -> list[EvalRun]:
+        rows = self._all("SELECT * FROM eval_runs ORDER BY id DESC", ())
+        return [_load(EvalRun, r, _ARMS) for r in rows]

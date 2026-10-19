@@ -2,6 +2,7 @@ import sqlite3
 from dataclasses import replace
 from pathlib import Path
 
+import respx
 from fastapi.testclient import TestClient
 
 from smartrouter.app import create_app
@@ -16,10 +17,14 @@ def settings_with_db(db: Path) -> Settings:
 
 def test_startup_creates_a_migrated_db_and_serves_healthz(tmp_path: Path) -> None:
     db = tmp_path / "data" / "router.db"
-    with TestClient(create_app(settings_with_db(db))) as client:
+    with (
+        respx.mock(base_url="https://api.anthropic.com") as upstream,
+        TestClient(create_app(settings_with_db(db))) as client,
+    ):
+        upstream.head("/").respond(200)
         resp = client.get("/healthz")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    assert resp.json() == {"status": "ok", "mode": "off", "engine": "off", "db": "ok", "upstream": "ok"}
     tables = {r[0] for r in sqlite3.connect(db).execute("select name from sqlite_master where type='table'")}
     expected = {
         "sessions",
