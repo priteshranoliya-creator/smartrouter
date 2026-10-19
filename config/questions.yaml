@@ -1,0 +1,16 @@
+complexity:
+  type: choice
+  instructions: How much reasoning does this coding request need?
+  criteria:
+    A: trivial - rename, format, small lookup, one-line fix
+    B: standard - a single-file change or a short explanation
+    C: involved - multi-file change, debugging with unclear cause
+    D: hard - architecture, design trade-offs, subtle concurrency or security
+task_type:
+  type: choice
+  instructions: What kind of task is this?
+  criteria: {E: edit code, D: debug, X: explain, P: plan or design, T: write tests, O: other}
+continuation:
+  type: choice
+  instructions: Does this continue the current task or start a new one?
+  criteria: {A: continues the current task, B: starts an unrelated task}

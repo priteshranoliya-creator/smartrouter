@@ -1,0 +1,20 @@
+{"id": "p01", "guess": "A", "prompt": "rename getUserData to fetchUserProfile everywhere in src/api/users.ts"}
+{"id": "p02", "guess": "A", "prompt": "fix the typo in the README: 'recieve' should be 'receive'"}
+{"id": "p03", "guess": "A", "prompt": "run prettier on the components folder"}
+{"id": "p04", "guess": "A", "prompt": "what port does the dev server run on?"}
+{"id": "p05", "guess": "A", "prompt": "add a trailing newline to config/app.yaml"}
+{"id": "p06", "guess": "B", "prompt": "add a --dry-run flag to the cleanup script that prints what it would delete instead of deleting"}
+{"id": "p07", "guess": "B", "prompt": "explain what this useEffect does and why it runs twice in dev mode"}
+{"id": "p08", "guess": "B", "prompt": "write unit tests for the parseDuration helper in utils/time.py, cover hours, minutes and invalid input"}
+{"id": "p09", "guess": "B", "prompt": "convert this class component to a function component with hooks"}
+{"id": "p10", "guess": "B", "prompt": "add pagination to the GET /orders endpoint using limit and cursor query params"}
+{"id": "p11", "guess": "C", "prompt": "the checkout tests pass locally but fail in CI with a timeout on the payment mock, figure out why"}
+{"id": "p12", "guess": "C", "prompt": "move the email sending out of the request handlers into a background job queue across the orders, signup and invoice modules"}
+{"id": "p13", "guess": "C", "prompt": "users report they get logged out randomly after about 20 minutes, find the cause"}
+{"id": "p14", "guess": "C", "prompt": "replace moment.js with date-fns across the whole frontend and make sure the timezone handling still matches"}
+{"id": "p15", "guess": "C", "prompt": "memory keeps growing in the worker process until it gets OOM killed after a few hours, investigate"}
+{"id": "p16", "guess": "D", "prompt": "design a multi-tenant permission model for the CMS that supports org-level roles, per-document sharing and audit logs, and compare RBAC vs ReBAC for our case"}
+{"id": "p17", "guess": "D", "prompt": "the payment retry loop sometimes double-charges when the gateway times out; we have two workers consuming the same queue. find the race and propose a fix that is safe under at-least-once delivery"}
+{"id": "p18", "guess": "D", "prompt": "review our JWT refresh flow for security issues: token rotation, reuse detection, storage in the browser, and CSRF"}
+{"id": "p19", "guess": "D", "prompt": "plan the migration of our monolith's order service to an event-sourced service without downtime, including the dual-write period and backfill"}
+{"id": "p20", "guess": "B", "prompt": "इस फंक्शन में null check जोड़ दो ताकि खाली लिस्ट पर crash न हो"}

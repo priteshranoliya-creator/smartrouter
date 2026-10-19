@@ -1,0 +1,20 @@
+# Changes to the TDD
+
+The TDD ("Laya Model Router POC — Technical Design Document", 2026-10-19) stays the source of truth except where this file says otherwise. Each entry: what changed, why, who approved.
+
+| # | Date | Section | Change | Why | Approved |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 2026-10-19 | 11 | Repo at `~/Desktop/laya-router`; hook commands point there | User choice | User |
+| 2 | 2026-10-19 | 2, 11 | Opt-in writes `.claude/settings.local.json` (section 11 / T2.4), not `settings.json` (section 2) | TDD contradicted itself; local file is git-ignored | User (recommended option) |
+| 3 | 2026-10-19 | 2, 8, 9, 11 | No `ANTHROPIC_API_KEY`: user is on a Claude Team plan. Live traffic uses the Team login through `ANTHROPIC_BASE_URL`; scripted runs use `claude -p` (or `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`). All dollar figures are **API-equivalent cost** from `usage` × `pricing.yaml`, not billed amounts. The eval runner's Claude arms run through `claude -p --model <id>` | No API key available | User |
+| 4 | 2026-10-19 | 5.2, 5.3, 6 | **Decision engine: ScaleDown `/classify`** is the default engine; Laya stays as a second engine behind the same `DecisionEngine` interface. Engine choice, labels and rubrics live in config. Engines return a probability per label; tier mapping and gating live in the policy | ScaleDown 16/20 vs Laya 13–14/20 on the spike set with usable confidences (`docs/spikes/scaledown.md`, `docs/spikes/laya.md`) | User |
+| 5 | 2026-10-19 | 4, 5.4 | Decision deadline is configurable (`router.yaml`); default sized for ScaleDown (~1.2 s p50), not 400 ms. Latency goal "p50 under 300 ms" is waived for the POC | ScaleDown is a network call | User: "latency is okay for now" |
+| 6 | 2026-10-19 | 6 | Prompts are sent to ScaleDown for classification, but only for projects opted in with `router install`; all other projects are untouched | Privacy exception for the POC | User |
+| 7 | 2026-10-19 | 5.2, 5.3 | Policy gates on **tier probability** (sum of label probabilities mapping to the desired tier), not Laya's entropy `confidence` field | Laya's `confidence` never exceeded 0.26 (`docs/spikes/laya.md`, Finding 1) | User (recommended option) |
+| 8 | 2026-10-19 | 5.3, 6 | When no rule switches (e.g. desired is stronger but below `upgrade_confidence`, cooldown passed), the decision is "stay" with rule `payback` | Fall-through gap in section 5.3 | User (recommended option) |
+| 9 | 2026-10-19 | 4, 6 | `decision_timeout` is stored as a rule value in `decisions.rule` | Section 4 logs it but section 6 had no place for it | User (recommended option) |
+| 10 | 2026-10-19 | 9 | Calibration fits the complexity/tier question only (`task_type` optional); `continuation` is not calibrated | Only tier has labels in the golden set | User (recommended option) |
+| 11 | 2026-10-19 | 5.5, 9 | Gemini pool = all current Gemini models (filled in T1.4 / T5.2) | User choice | User |
+| 12 | 2026-10-19 | 5.3, 6 | Policy tracks cache warmth **per model per session** (`last_used_at` per model). Switching back to a model used within its TTL costs ~0 switch tax. Switch tax uses only the part of the prefix the target model does not already have warm | T0.2: switch-back wrote 95–161 tokens, read ~36k (`docs/spikes/model-switch.md`) | User |
+| 13 | 2026-10-19 | 5.3, 8 | Cache TTL is **1 hour** on this account (`ephemeral_1h`): `free_window` "cache cold" = idle > 3600 s (configurable, default from observed TTL); cache writes price at 2.0× input | T0.1 / T0.2 usage blocks | User |
+| 14 | 2026-10-19 | 4, 5.4 | Request correlation uses Claude Code hint headers: `x-claude-code-session-id` (session), `x-claude-code-prompt-id` (turn, = hook `prompt_id`), `x-claude-code-request-class` (only `main` is ever rewritten), `x-claude-code-compaction`. `router install` adds `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1` to the project env. Fallback when absent: TDD section 4 rules (latest open turn; model match for main vs background) | T0.1 (`docs/spikes/session-key.md`) | User |

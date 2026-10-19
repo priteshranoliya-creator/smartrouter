@@ -1,0 +1,23 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# runtime data (golden set is versioned)
+data/*
+!data/golden/
+!data/golden/**
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+*.egg-info/
+
+# spike output
+spikes/**/out/
+spikes/**/*.log
