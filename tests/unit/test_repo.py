@@ -233,3 +233,47 @@ def test_get_session_model(repo: Repo) -> None:
     repo.touch_session_model(warm)
     assert repo.get_session_model("s1", "opus") == warm
     assert repo.get_session_model("s1", "haiku") is None
+
+
+def test_insert_decision_if_absent_keeps_the_first_row(repo: Repo) -> None:
+    turn_id = repo.insert_turn(Turn(session_id="s1", seq=1, prompt="a", created_at=T1))
+    first = Decision(
+        turn_id=turn_id, engine="fake", answers={}, chosen_model="opus", rule="payback", mode="shadow"
+    )
+    assert repo.insert_decision_if_absent(first) is True
+    assert repo.insert_decision_if_absent(replace(first, chosen_model="haiku")) is False
+    assert repo.get_decision(turn_id) == first
+
+
+def test_session_statistics_for_the_policy(repo: Repo) -> None:
+    repo.upsert_session(Session(id="s2", project_path="/p", started_at=T0))
+    assert repo.turns_per_session() == (None, 0)
+    assert repo.mean_main_output_tokens("s1") is None
+    ids = [
+        repo.insert_turn(Turn(session_id=sid, seq=seq, prompt=f"{sid}-{seq}", created_at=T1))
+        for sid, count in (("s1", 3), ("s2", 1))
+        for seq in range(1, count + 1)
+    ]
+    assert repo.turns_per_session() == (2.0, 2)
+    assert repo.previous_turn_prompt("s1", 3) == "s1-2"
+    assert repo.previous_turn_prompt("s1", 1) is None
+
+    def request(kind: str, output: int | None, turn_id: int) -> Request:
+        return Request(
+            turn_id=turn_id,
+            session_id="s1",
+            kind=kind,  # type: ignore[arg-type]
+            requested_model="m",
+            sent_model="m",
+            provider="anthropic",
+            output_tokens=output,
+            cost_usd=0.0,
+            created_at=T1,
+        )
+
+    for row in (request("main", 10, ids[0]), request("main", 30, ids[0]), request("main", None, ids[0])):
+        repo.insert_request(row)
+    repo.insert_request(request("background", 1000, ids[0]))
+    assert repo.mean_main_output_tokens("s1") == 20.0
+    assert repo.main_request_count(ids[0]) == 3
+    assert repo.main_request_count(ids[1]) == 0

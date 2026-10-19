@@ -5,13 +5,13 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from smartrouter.app import create_app
-from smartrouter.settings import Settings, load_settings
+from smartrouter.settings import Mode, Settings, load_settings
 
 
 def settings_with_db(db: Path) -> Settings:
     base = load_settings(env={})
     paths = base.router.paths.model_copy(update={"db": db})
-    return replace(base, router=base.router.model_copy(update={"paths": paths}))
+    return replace(base, router=base.router.model_copy(update={"paths": paths, "mode": Mode.OFF}))
 
 
 def test_startup_creates_a_migrated_db_and_serves_healthz(tmp_path: Path) -> None:

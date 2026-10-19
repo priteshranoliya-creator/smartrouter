@@ -21,3 +21,4 @@ request is ~36k tokens. Uses your normal Claude Code login.
 | Date | Milestone | Result |
 | --- | --- | --- |
 | 2026-10-19 | M2 (shadow, observe only) | Pass. 1 session, 3 turns (override parsed), 5 requests (4 main, 1 compaction) all linked to turns, 1 compaction (prefix 35,793), session_models prefix 36,981. Uninstall removed `.claude/`. |
+| 2026-10-19 | M3 (shadow, ScaleDown decisions) | Pass. 4 turns, 4 decision rows (free_window, same_tier, payback, override), ScaleDown 572–1461 ms; all 5 main requests have a counterfactual; requests went out unchanged on Haiku. The design prompt scored D at 0.72, under `upgrade_confidence` 0.75, so the router stayed: a threshold to revisit in T6.1. |

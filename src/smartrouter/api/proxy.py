@@ -77,11 +77,13 @@ def _forward_headers(items: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
     return out
 
 
-def _record(recorder: Recorder, exchange: Exchange) -> None:
-    try:
-        recorder.record(exchange)
-    except Exception:
-        logger.exception("recording %s %s failed", exchange.method, exchange.path)
+async def _record(recorder: Recorder, exchange: Exchange) -> None:
+    """Shielded: a client that hung up still gets its exchange (and the turn's decision) recorded."""
+    with anyio.CancelScope(shield=True):
+        try:
+            await recorder.arecord(exchange)
+        except Exception:
+            logger.exception("recording %s %s failed", exchange.method, exchange.path)
 
 
 async def _relay(request: Request) -> Response:
@@ -114,10 +116,11 @@ async def _relay(request: Request) -> Response:
         method, target, headers=_forward_headers(request.headers.items()), content=body or None
     )
     try:
+        # Active mode (T6.2) awaits the turn's decision here, before forwarding. Shadow mode never waits.
         upstream = await http.send(upstream_request, stream=True)
     except httpx.HTTPError as exc:
         logger.warning("upstream unreachable for %s %s: %r", method, path, exc)
-        _record(
+        await _record(
             recorder,
             exchange(
                 status=502,
@@ -146,7 +149,7 @@ async def _relay(request: Request) -> Response:
             with anyio.CancelScope(shield=True):
                 await upstream.aclose()
             result = tap.finish()
-            _record(
+            await _record(
                 recorder,
                 exchange(
                     status=upstream.status_code,

@@ -6,10 +6,11 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 
+from smartrouter.decision.service import DecisionService, Outcome
 from smartrouter.providers.base import Usage
 from smartrouter.telemetry.events import Event, EventBus
 from smartrouter.telemetry.models import Request, RequestKind, Session, SessionModel, Turn
-from smartrouter.telemetry.pricing import PriceBook, PricingError, cost
+from smartrouter.telemetry.pricing import PriceBook, PricingError, cost, counterfactual
 from smartrouter.telemetry.repo import Repo
 
 SESSION_HEADER = "x-claude-code-session-id"
@@ -56,6 +57,10 @@ def choose_turn(by_prompt_id: Turn | None, latest: Turn | None) -> Turn | None:
     return by_prompt_id or latest
 
 
+def _is_messages(ex: Exchange) -> bool:
+    return ex.method == "POST" and ex.path == "/v1/messages"
+
+
 @dataclass(frozen=True)
 class _Resolved:
     session: Session | None
@@ -64,20 +69,96 @@ class _Resolved:
 
 
 class Recorder:
-    def __init__(self, repo: Repo, prices: PriceBook, bus: EventBus) -> None:
+    def __init__(
+        self, repo: Repo, prices: PriceBook, bus: EventBus, decisions: DecisionService | None = None
+    ) -> None:
         self._repo = repo
         self._prices = prices
         self._bus = bus
+        self._decisions = decisions
 
-    def record(self, ex: Exchange) -> int | None:
-        if ex.method != "POST" or ex.path != "/v1/messages":
+    async def arecord(self, ex: Exchange) -> int | None:
+        """Record the exchange. A turn's first main request waits for the turn's decision, to its deadline."""
+        if not _is_messages(ex):
             return None
         resolved = self._resolve(ex)
+        turn = resolved.turn
+        decisions = self._decisions
+        if (
+            decisions is None
+            or resolved.kind != "main"
+            or turn is None
+            or turn.id is None
+            or self._repo.get_decision(turn.id) is not None
+        ):
+            return self._persist(ex, resolved, None)
+        try:
+            return self._persist(ex, resolved, await decisions.outcome(turn.id))
+        finally:
+            decisions.release(turn.id)
+
+    def record(self, ex: Exchange, outcome: Outcome | None = None) -> int | None:
+        if not _is_messages(ex):
+            return None
+        return self._persist(ex, self._resolve(ex), outcome)
+
+    def _persist(self, ex: Exchange, resolved: _Resolved, outcome: Outcome | None) -> int | None:
+        chosen = self._turn_choice(ex, resolved, outcome)
+        first_in_turn = (
+            chosen is not None
+            and resolved.turn is not None
+            and resolved.turn.id is not None
+            and self._repo.main_request_count(resolved.turn.id) == 0
+        )
         row = self._build_row(ex, resolved)
+        row = replace(row, counterfactual_cost_usd=self._counterfactual(ex, resolved, chosen, first_in_turn))
         row = replace(row, id=self._repo.insert_request(row))
         self._update_session(ex, resolved)
         self._bus.publish(Event("request", asdict(row)))
         return row.id
+
+    def _turn_choice(self, ex: Exchange, resolved: _Resolved, outcome: Outcome | None) -> str | None:
+        """The model the turn's decision chose, writing the decision on the turn's first main request."""
+        turn = resolved.turn
+        if self._decisions is None or resolved.kind != "main" or turn is None or turn.id is None:
+            return None
+        existing = self._repo.get_decision(turn.id)
+        if existing is not None:
+            return existing.chosen_model
+        row = self._decisions.decision_row(turn.id, outcome, ex.request_model or "unknown")
+        if self._repo.insert_decision_if_absent(row):
+            self._bus.publish(Event("decision", asdict(row)))
+        return row.chosen_model
+
+    def _counterfactual(
+        self, ex: Exchange, resolved: _Resolved, chosen: str | None, first_in_turn: bool
+    ) -> float | None:
+        """Cost had `chosen` served the request. A turn's first request finds that model's prefix warm
+        only if the session used it within the TTL; later requests read what the actual request read."""
+        usage, model = ex.usage, ex.request_model
+        if chosen is None or usage is None or model is None:
+            return None
+        when = ex.started_at.astimezone(UTC)
+        try:
+            if chosen == model:
+                return cost(self._prices, model, usage, when.date())
+            if first_in_turn:
+                warm = self._warm_prefix(resolved.session, chosen, when)
+            else:
+                warm = usage.cache_read_tokens
+            return counterfactual(self._prices, chosen, usage, warm, when.date())
+        except PricingError:
+            return None
+
+    def _warm_prefix(self, session: Session | None, model: str, now: datetime) -> int:
+        assert self._decisions is not None
+        if session is None:
+            return 0
+        used = self._repo.get_session_model(session.id, model)
+        if used is None:
+            return 0
+        idle = (now - datetime.fromisoformat(used.last_used_at)).total_seconds()
+        return (used.prefix_tokens or 0) if idle <= self._decisions.cache_ttl_s else 0
 
     def _resolve(self, ex: Exchange) -> _Resolved:
         headers = ex.request_headers

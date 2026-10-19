@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from smartrouter.decision.features import parse_override
+from smartrouter.decision.service import DecisionService
 from smartrouter.telemetry.events import Event, EventBus
 from smartrouter.telemetry.models import Compaction, Session, Turn
 from smartrouter.telemetry.repo import Repo
@@ -68,6 +69,11 @@ async def prompt_submitted(request: Request) -> Response:
     )
     turn = replace(turn, id=repo.insert_turn(turn))
     bus.publish(Event("turn", asdict(turn)))
+    decisions: DecisionService | None = request.app.state.decisions
+    if decisions is not None:
+        session = repo.get_session(payload.session_id)
+        assert session is not None
+        decisions.start(turn, session)
     return JSONResponse({"turn_id": turn.id}, status_code=202)
 
 

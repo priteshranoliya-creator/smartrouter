@@ -15,7 +15,7 @@ from fastapi import FastAPI
 
 from smartrouter.app import create_app
 from smartrouter.providers.base import Usage
-from smartrouter.settings import ROOT, Settings, load_settings
+from smartrouter.settings import ROOT, Mode, Settings, load_settings
 from smartrouter.telemetry.models import Request
 from smartrouter.telemetry.pricing import cost, load_pricing
 
@@ -34,7 +34,7 @@ STREAM_NAMES = ["text", "tool_use", "text_after_tool"]
 def settings_with_db(db: Path) -> Settings:
     base = load_settings(env={})
     paths = base.router.paths.model_copy(update={"db": db})
-    return replace(base, router=base.router.model_copy(update={"paths": paths}))
+    return replace(base, router=base.router.model_copy(update={"paths": paths, "mode": Mode.OFF}))
 
 
 @pytest.fixture

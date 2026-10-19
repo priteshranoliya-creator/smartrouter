@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import statistics
 import threading
 from collections.abc import Collection
 from dataclasses import fields
@@ -86,6 +87,10 @@ class Repo:
     def _write(self, sql: str, params: tuple[Any, ...] | dict[str, Any] = ()) -> int | None:
         with self._lock:
             return self._conn.execute(sql, params).lastrowid
+
+    def _write_count(self, sql: str, params: tuple[Any, ...] | dict[str, Any] = ()) -> int:
+        with self._lock:
+            return self._conn.execute(sql, params).rowcount
 
     def _one(self, sql: str, params: tuple[Any, ...]) -> sqlite3.Row | None:
         with self._lock:
@@ -182,6 +187,13 @@ class Repo:
         row = self._one("SELECT * FROM turns WHERE session_id = ? ORDER BY seq DESC LIMIT 1", (session_id,))
         return None if row is None else _load(Turn, row)
 
+    def previous_turn_prompt(self, session_id: str, seq: int) -> str | None:
+        row = self._one(
+            "SELECT prompt FROM turns WHERE session_id = ? AND seq < ? ORDER BY seq DESC LIMIT 1",
+            (session_id, seq),
+        )
+        return None if row is None else str(row[0])
+
     def get_turn(self, turn_id: int) -> Turn | None:
         row = self._one("SELECT * FROM turns WHERE id = ?", (turn_id,))
         return None if row is None else _load(Turn, row)
@@ -193,12 +205,42 @@ class Repo:
     def insert_decision(self, decision: Decision) -> None:
         self._insert("decisions", decision, _ANSWERS)
 
+    def insert_decision_if_absent(self, decision: Decision) -> bool:
+        """Insert unless the turn already has a decision. True when this call wrote the row."""
+        values = _values(decision, _ANSWERS)
+        cols = ", ".join(values)
+        marks = ", ".join(f":{c}" for c in values)
+        return self._write_count(f"INSERT OR IGNORE INTO decisions ({cols}) VALUES ({marks})", values) == 1
+
     def get_decision(self, turn_id: int) -> Decision | None:
         row = self._one("SELECT * FROM decisions WHERE turn_id = ?", (turn_id,))
         return None if row is None else _load(Decision, row, _ANSWERS)
 
     def insert_request(self, request: Request) -> int:
         return self._insert("requests", request)
+
+    def main_request_count(self, turn_id: int) -> int:
+        row = self._one("SELECT COUNT(*) FROM requests WHERE turn_id = ? AND kind = 'main'", (turn_id,))
+        assert row is not None
+        count: int = row[0]
+        return count
+
+    def mean_main_output_tokens(self, session_id: str) -> float | None:
+        """Mean output tokens of the session's main requests that reported usage, None when there are none."""
+        row = self._one(
+            "SELECT AVG(output_tokens) FROM requests "
+            "WHERE session_id = ? AND kind = 'main' AND output_tokens IS NOT NULL",
+            (session_id,),
+        )
+        assert row is not None
+        mean: float | None = row[0]
+        return mean
+
+    def turns_per_session(self) -> tuple[float | None, int]:
+        """Median turn count over sessions that have turns, and how many such sessions there are."""
+        rows = self._all("SELECT COUNT(*) FROM turns GROUP BY session_id", ())
+        counts = [r[0] for r in rows]
+        return (statistics.median(counts) if counts else None), len(counts)
 
     def list_requests(self, session_id: str) -> list[Request]:
         rows = self._all("SELECT * FROM requests WHERE session_id = ? ORDER BY created_at, id", (session_id,))
