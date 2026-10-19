@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -129,7 +130,13 @@ async def judge_answer(provider: EvalProvider, model: str, item: GoldenItem, ans
     raise JudgeError(f"{model} returned invalid judge JSON after {ATTEMPTS} attempts: {problem}")
 
 
-def in_rejudge_sample(item_id: str, arm: str, fraction: float) -> bool:
-    """A stable pseudo-random draw per (item, arm), so re-runs re-judge the same rows."""
-    digest = hashlib.sha256(f"{item_id}:{arm}".encode()).digest()
-    return int.from_bytes(digest[:8], "big") / 2**64 < fraction
+def rejudge_sample(pairs: Iterable[tuple[str, str]], fraction: float) -> frozenset[tuple[str, str]]:
+    """Exactly round(fraction x n) (item, arm) pairs, at least one when fraction > 0.
+
+    Pairs are ranked by a stable hash, so re-runs and resumes re-judge the same rows. A per-row coin
+    flip drifted too far from the target on small runs (4 of 120 at 10%).
+    """
+    ranked = sorted(set(pairs), key=lambda p: hashlib.sha256(f"{p[0]}:{p[1]}".encode()).digest())
+    if fraction <= 0 or not ranked:
+        return frozenset()
+    return frozenset(ranked[: max(1, round(fraction * len(ranked)))])

@@ -10,7 +10,7 @@ from typing import Any, Generic, TypeVar
 
 from smartrouter.decision.engine import EngineError
 from smartrouter.eval.dataset import GoldenItem
-from smartrouter.eval.judge import Judgment, in_rejudge_sample, judge_answer
+from smartrouter.eval.judge import Judgment, judge_answer, rejudge_sample
 from smartrouter.eval.providers import Arms, EvalError, EvalProvider, render_prompt
 from smartrouter.eval.router_arm import Prediction, RouterArm
 from smartrouter.telemetry.models import EvalResult, EvalRun
@@ -75,6 +75,7 @@ class EvalRunner:
     ) -> None:
         self._repo = repo
         self._cfg = config
+        self._rejudge_pairs: frozenset[tuple[str, str]] = frozenset()
         self._progress = progress
         self._answers: _Once[tuple[str, str], Produced] = _Once()
         self._judgments: _Once[tuple[str, str], Judgment] = _Once()
@@ -97,6 +98,9 @@ class EvalRunner:
     ) -> None:
         """Store a row for every (item, arm) not in `done`. `previous` rows seed the answer cache."""
         self.check_arms(arm_names)
+        self._rejudge_pairs = rejudge_sample(
+            ((item.id, arm) for item in items for arm in arm_names), self._cfg.rejudge_fraction
+        )
         for row in previous:
             if row.error is None:
                 self._answers.seed(
@@ -177,7 +181,7 @@ class EvalRunner:
             return row(model, error=f"judge: {exc}", **shared)
         rubric: dict[str, Any] = {"judge": judgment.to_json()}
         rejudge = self._cfg.rejudge
-        if rejudge is not None and in_rejudge_sample(item.id, arm, self._cfg.rejudge_fraction):
+        if rejudge is not None and (item.id, arm) in self._rejudge_pairs:
             try:
                 second = await judge_answer(rejudge[0], rejudge[1], item, produced.text)
                 rubric["rejudge"] = second.to_json()

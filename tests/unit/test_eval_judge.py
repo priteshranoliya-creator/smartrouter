@@ -7,9 +7,9 @@ from smartrouter.eval.judge import (
     JudgeError,
     Judgment,
     build_prompt,
-    in_rejudge_sample,
     judge_answer,
     parse_reply,
+    rejudge_sample,
 )
 from tests.unit.eval_fakes import FakeProvider, item
 
@@ -128,10 +128,12 @@ def test_json_form_of_a_judgment() -> None:
     }
 
 
-def test_rejudge_sample_is_deterministic_and_about_the_fraction() -> None:
-    pairs = [(f"g-{n:04d}", arm) for n in range(1000) for arm in ("opus", "router")]
-    first = [in_rejudge_sample(i, a, 0.1) for i, a in pairs]
-    assert first == [in_rejudge_sample(i, a, 0.1) for i, a in pairs]
-    assert 0.08 <= sum(first) / len(pairs) <= 0.12
-    assert not any(in_rejudge_sample(i, a, 0.0) for i, a in pairs)
-    assert all(in_rejudge_sample(i, a, 1.0) for i, a in pairs)
+def test_rejudge_sample_is_exact_deterministic_and_order_free() -> None:
+    pairs = [(f"g-{n:04d}", arm) for n in range(15) for arm in ("opus", "sonnet", "haiku", "router")]
+    sample = rejudge_sample(pairs, 0.1)
+    assert len(sample) == 6  # round(0.1 x 60)
+    assert sample == rejudge_sample(reversed(pairs), 0.1)
+    assert sample <= set(pairs)
+    assert rejudge_sample(pairs, 0.0) == frozenset()
+    assert rejudge_sample(pairs, 1.0) == frozenset(pairs)
+    assert len(rejudge_sample(pairs[:3], 0.1)) == 1  # never zero when a fraction is asked for
