@@ -113,6 +113,16 @@ class DecisionService:
             return None
         return pending.task.result()
 
+    def failed(self, turn_id: int) -> bool:
+        """True when the engine has already given up on the turn (an error, not a slow answer)."""
+        pending = self._pending.get(turn_id)
+        return (
+            pending is not None
+            and pending.task.done()
+            and not pending.task.cancelled()
+            and pending.task.result() is None
+        )
+
     def tier_model(self, tier: str) -> str | None:
         """The model of a tier name (an override like `sonnet`), None for anything else."""
         config = self._tiers.get(tier)
@@ -136,14 +146,14 @@ class DecisionService:
 
     def decision_row(self, turn_id: int, outcome: Outcome | None, standing_model: str) -> DecisionRow:
         """The turn's decisions row. With no outcome the model the turn's first request ran on stands
-        and the rule is decision_timeout."""
+        and the rule is decision_error if the engine failed, else decision_timeout."""
         if outcome is None:
             return DecisionRow(
                 turn_id=turn_id,
                 engine=self._engine.name,
                 answers={},
                 chosen_model=standing_model,
-                rule="decision_timeout",
+                rule="decision_error" if self.failed(turn_id) else "decision_timeout",
                 mode=self.mode,
             )
         return DecisionRow(

@@ -16,6 +16,7 @@ Rule = Literal[
     "cooldown",
     "payback",
     "decision_timeout",
+    "decision_error",
 ]
 Mode = Literal["off", "shadow", "active"]
 RequestKind = Literal["main", "background", "compaction", "subagent", "eval"]

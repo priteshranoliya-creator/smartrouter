@@ -47,10 +47,15 @@ def test_open_creates_missing_parent_dir_and_schema(tmp_path: Path) -> None:
 
 def test_migrate_twice_applies_nothing_new(tmp_path: Path) -> None:
     conn = connect(tmp_path / "r.db")
-    assert migrate(conn) == [1, 2, 3]
+    assert migrate(conn) == [1, 2, 3, 4]
     assert migrate(conn) == []
     rows = conn.execute("SELECT version, name FROM schema_migrations").fetchall()
-    assert [(r[0], r[1]) for r in rows] == [(1, "init"), (2, "eval_errors"), (3, "request_overhead")]
+    assert [(r[0], r[1]) for r in rows] == [
+        (1, "init"),
+        (2, "eval_errors"),
+        (3, "request_overhead"),
+        (4, "decision_error"),
+    ]
 
 
 def test_journal_mode_is_wal(tmp_path: Path) -> None:
@@ -138,7 +143,7 @@ def test_migration_002_adds_error_to_existing_eval_results(tmp_path: Path) -> No
         "INSERT INTO eval_results (run_id, item_id, arm, model_used, answer) "
         "VALUES (1, 'g-0001', 'a', 'm', 'x')"
     )
-    assert migrate(conn) == [2, 3]
+    assert migrate(conn) == [2, 3, 4]
     row = conn.execute("SELECT answer, error FROM eval_results").fetchone()
     assert (row["answer"], row["error"]) == ("x", None)
     conn.execute(
@@ -158,5 +163,36 @@ def test_migration_003_adds_overhead_to_existing_requests(tmp_path: Path) -> Non
         "INSERT INTO requests (kind, requested_model, sent_model, provider, cost_usd, created_at) "
         "VALUES ('main', 'm', 'm', 'anthropic', 0.0, 't')"
     )
-    assert migrate(conn) == [3]
+    assert migrate(conn) == [3, 4]
     assert conn.execute("SELECT overhead_ms FROM requests").fetchone()["overhead_ms"] is None
+
+
+def test_migration_004_keeps_decisions_and_accepts_decision_error(tmp_path: Path) -> None:
+    upto_003 = tmp_path / "m"
+    upto_003.mkdir()
+    for name in ("001_init.sql", "002_eval_errors.sql", "003_request_overhead.sql"):
+        (upto_003 / name).write_text((MIGRATIONS_DIR / name).read_text())
+    conn = connect(tmp_path / "r.db")
+    assert migrate(conn, upto_003) == [1, 2, 3]
+    conn.execute("INSERT INTO sessions (id, project_path, started_at) VALUES ('s1', '/p', 't')")
+    conn.execute("INSERT INTO turns (session_id, seq, prompt, created_at) VALUES ('s1', 1, 'a', 't')")
+    for seq in (2, 3):
+        conn.execute(
+            f"INSERT INTO turns (session_id, seq, prompt, created_at) VALUES ('s1', {seq}, 'b', 't')"
+        )
+    conn.execute(
+        "INSERT INTO decisions (turn_id, engine, answers, chosen_model, rule, mode, est_saving_usd) "
+        "VALUES (1, 'scaledown', '{}', 'm', 'payback', 'shadow', 0.5)"
+    )
+    assert migrate(conn) == [4]
+    row = conn.execute("SELECT engine, rule, est_saving_usd FROM decisions").fetchone()
+    assert (row["engine"], row["rule"], row["est_saving_usd"]) == ("scaledown", "payback", 0.5)
+    conn.execute(
+        "INSERT INTO decisions (turn_id, engine, answers, chosen_model, rule, mode) "
+        "VALUES (2, 'scaledown', '{}', 'm', 'decision_error', 'shadow')"
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO decisions (turn_id, engine, answers, chosen_model, rule, mode) "
+            "VALUES (3, 'scaledown', '{}', 'm', 'bogus', 'shadow')"
+        )

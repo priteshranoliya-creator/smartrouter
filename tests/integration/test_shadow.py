@@ -183,14 +183,14 @@ async def test_engine_slower_than_the_deadline_is_a_timeout(tmp_path: Path, upst
     assert row.counterfactual_cost_usd == row.cost_usd
 
 
-async def test_engine_error_is_a_timeout(tmp_path: Path, upstream: respx.Route) -> None:
+async def test_engine_error_is_a_decision_error(tmp_path: Path, upstream: respx.Route) -> None:
     engine = ScriptedEngine(WANTS_OPUS, error=EngineError("scaledown: HTTP 500"))
     async with serving(tmp_path, engine) as s:
         turn_id = await prompt(s.client, "hello", "p1")
         await send(s.client, headers=main_headers("p1"))
         decision = s.repo.get_decision(turn_id)
     assert decision is not None
-    assert (decision.rule, decision.chosen_model) == ("decision_timeout", HAIKU)
+    assert (decision.rule, decision.chosen_model, decision.desired_model) == ("decision_error", HAIKU, None)
 
 
 async def test_mode_off_makes_no_decisions(tmp_path: Path, upstream: respx.Route) -> None:
