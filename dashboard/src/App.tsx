@@ -9,13 +9,15 @@ import { MixPanel } from "./components/MixPanel";
 import { QualityPanel } from "./components/QualityPanel";
 import { Sidebar } from "./components/Sidebar";
 import { SpendPanel } from "./components/SpendPanel";
+import { CountersPanel, EnginePanel, ModelTablePanel } from "./components/TechPanels";
 import { Topbar } from "./components/Topbar";
 import { useEvalRuns, useFeed, useMode, useStats, useStream, useTheme } from "./hooks";
-import type { WindowName } from "./types";
+import type { View, WindowName } from "./types";
 
 export function App() {
   const [windowName, setWindowName] = useState<WindowName>("all");
   const [filter, setFilter] = useState("");
+  const [view, setView] = useState<View>("overview");
   const [theme, toggleTheme] = useTheme();
   const { stats, schedule: scheduleStats } = useStats(windowName);
   const { feed, markSession } = useFeed();
@@ -33,6 +35,16 @@ export function App() {
       scheduleStats();
     },
   );
+
+  const navigate = (next: View, id: string) => {
+    setView(next);
+    const scroll = () => {
+      const target = document.getElementById(id);
+      if (id === "top" || !target) window.scrollTo({ top: 0 });
+      else target.scrollIntoView({ block: "start" });
+    };
+    requestAnimationFrame(() => requestAnimationFrame(scroll));
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -57,8 +69,6 @@ export function App() {
   const engine = items.find((i) => i.turn.decision && i.turn.decision.engine)?.turn.decision?.engine ?? null;
 
   const counts = {
-    sessions: stats ? stats.sessions : 0,
-    switches: stats ? stats.switches : 0,
     feed: visibleFeed(items, filter).length,
     ledger: stats ? stats.switch_ledger.length : 0,
     mix: stats ? stats.by_model.length : 0,
@@ -68,21 +78,38 @@ export function App() {
 
   return (
     <div class="shell">
-      <Sidebar searchRef={searchRef} onFilter={setFilter} counts={counts} mode={mode} modeMessage={message} onMode={change} />
+      <Sidebar searchRef={searchRef} onFilter={setFilter} view={view} onNavigate={navigate} counts={counts} mode={mode} modeMessage={message} onMode={change} />
       <div class="main" id="top">
-        <Topbar live={live} window={windowName} onWindow={setWindowName} theme={theme} onToggleTheme={toggleTheme} />
+        <Topbar live={live} window={windowName} onWindow={setWindowName} view={view} onView={(v) => navigate(v, "top")} theme={theme} onToggleTheme={toggleTheme} />
         <main class="content">
-          <Hero stats={stats} mode={mode} engine={engine} />
-          <div class="section-label">Panels</div>
-          <div class="grid">
-            <SpendPanel stats={stats} theme={theme} />
-            <FeedPanel items={items} filter={filter} />
-            <LedgerPanel stats={stats} />
-            <CachePanel stats={stats} theme={theme} />
-            <MixPanel stats={stats} theme={theme} />
-            <QualityPanel stats={stats} theme={theme} />
-            <EvalPanel runs={runs} reload={reload} theme={theme} />
-          </div>
+          {stats === null ? (
+            <p class="empty page-loading">Loading</p>
+          ) : view === "overview" ? (
+            <>
+              <Hero stats={stats} mode={mode} />
+              <div class="grid">
+                <SpendPanel stats={stats} theme={theme} />
+                <FeedPanel items={items} filter={filter} />
+                <LedgerPanel stats={stats} />
+                <MixPanel stats={stats} theme={theme} />
+                <QualityPanel stats={stats} />
+                <EvalPanel runs={runs} reload={reload} theme={theme} />
+              </div>
+            </>
+          ) : (
+            <>
+              <div class="page-intro">
+                <h1>Technical details</h1>
+                <p class="lede">The numbers behind the overview. You do not need these to judge whether the router works.</p>
+              </div>
+              <div class="grid">
+                <CountersPanel stats={stats} engine={engine} />
+                <ModelTablePanel stats={stats} />
+                <CachePanel stats={stats} theme={theme} />
+                <EnginePanel stats={stats} theme={theme} />
+              </div>
+            </>
+          )}
         </main>
       </div>
     </div>

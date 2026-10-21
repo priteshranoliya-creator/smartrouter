@@ -1,12 +1,14 @@
 import type { ComponentChildren, RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { Mode } from "../types";
-import { IconDashboard, IconLogo, IconSearch, IconSwitch, IconUsers } from "./icons";
+import type { Mode, View } from "../types";
+import { IconDashboard, IconLogo, IconSearch, IconTarget } from "./icons";
 
 interface SidebarProps {
   searchRef: RefObject<HTMLInputElement>;
   onFilter: (value: string) => void;
-  counts: { sessions: number; switches: number; feed: number; ledger: number; mix: number; quality: number; evalRuns: number };
+  view: View;
+  onNavigate: (view: View, id: string) => void;
+  counts: { feed: number; ledger: number; mix: number; quality: number; evalRuns: number };
   mode: Mode | null;
   modeMessage: string | null;
   onMode: (mode: Mode) => void;
@@ -14,27 +16,36 @@ interface SidebarProps {
 
 const MODES: Mode[] = ["off", "shadow", "active"];
 
-/** Panel anchors repeat across the two groups, so the pill follows the item's key and not its href. */
-const MAIN_NAV = [
-  { key: "dashboard", href: "#top", label: "Dashboard", icon: <IconDashboard />, count: null },
-  { key: "sessions", href: "#panel-feed", label: "Sessions", icon: <IconUsers />, count: "sessions" },
-  { key: "switches", href: "#panel-ledger", label: "Switches", icon: <IconSwitch />, count: "switches" },
-] as const;
+interface NavDef {
+  key: string;
+  view: View;
+  id: string;
+  label: string;
+  count: keyof SidebarProps["counts"] | null;
+}
 
-const PANEL_NAV = [
-  { key: "feed", href: "#panel-feed", label: "Live turn feed", count: "feed" },
-  { key: "spend", href: "#panel-spend", label: "Spend vs baseline", count: null },
-  { key: "ledger", href: "#panel-ledger", label: "Switch ledger", count: "ledger" },
-  { key: "cache", href: "#panel-cache", label: "Cache health", count: null },
-  { key: "mix", href: "#panel-mix", label: "Model mix", count: "mix" },
-  { key: "quality", href: "#panel-quality", label: "Decision quality", count: "quality" },
-  { key: "eval", href: "#panel-eval", label: "Eval runs", count: "evalRuns" },
-] as const;
+/** Panels in page order for each view, so the active pill follows the order the page reads in. */
+const VIEW_NAV: NavDef[] = [
+  { key: "overview", view: "overview", id: "top", label: "Overview", count: null },
+  { key: "technical", view: "technical", id: "top", label: "Technical details", count: null },
+];
+const OVERVIEW_PANELS: NavDef[] = [
+  { key: "spend", view: "overview", id: "panel-spend", label: "Spend vs baseline", count: null },
+  { key: "feed", view: "overview", id: "panel-feed", label: "Live turn feed", count: "feed" },
+  { key: "ledger", view: "overview", id: "panel-ledger", label: "Switch ledger", count: "ledger" },
+  { key: "mix", view: "overview", id: "panel-mix", label: "Model mix", count: "mix" },
+  { key: "quality", view: "overview", id: "panel-quality", label: "Decision quality", count: "quality" },
+  { key: "eval", view: "overview", id: "panel-eval", label: "Eval runs", count: "evalRuns" },
+];
+const TECH_PANELS: NavDef[] = [
+  { key: "counters", view: "technical", id: "panel-counters", label: "Raw counters", count: null },
+  { key: "models", view: "technical", id: "panel-models", label: "Per-model counts", count: null },
+  { key: "cache", view: "technical", id: "panel-cache", label: "Cache health", count: null },
+  { key: "engine", view: "technical", id: "panel-engine", label: "Decision engine detail", count: null },
+];
 
-const ALL_NAV = [...MAIN_NAV, ...PANEL_NAV];
+const ALL_NAV = [...VIEW_NAV, ...OVERVIEW_PANELS, ...TECH_PANELS];
 const COUNT_IDS: Record<string, string> = {
-  sessions: "nav-sessions",
-  switches: "nav-switches",
   feed: "nav-feed",
   ledger: "nav-ledger",
   mix: "nav-mix",
@@ -44,23 +55,28 @@ const COUNT_IDS: Record<string, string> = {
 const SPY_LINE_RATIO = 0.3;
 const SCROLL_SETTLE_MS = 150;
 
-function targetOf(href: string): HTMLElement | null {
-  return document.getElementById(href.slice(1));
-}
-
 /** The nav item whose section is under the sticky bar. Clicking selects at once, scrolling follows the page. */
-function useActiveNav(): [string, (key: string) => void] {
-  const [active, setActive] = useState<string>(() => ALL_NAV.find((n) => n.href === location.hash && n.href !== "#top")?.key ?? "dashboard");
+function useActiveNav(view: View): [string, (key: string) => void] {
+  const [active, setActive] = useState<string>(view);
   const current = useRef(active);
   const holdUntil = useRef(0);
-  const select = (key: string) => {
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const set = (key: string) => {
     current.current = key;
-    holdUntil.current = Date.now() + SCROLL_SETTLE_MS;
     setActive(key);
   };
+  const select = (key: string) => {
+    holdUntil.current = Date.now() + SCROLL_SETTLE_MS;
+    set(key);
+  };
   useEffect(() => {
-    const spans = (href: string) => {
-      const box = targetOf(href)?.getBoundingClientRect();
+    const item = ALL_NAV.find((n) => n.key === current.current);
+    if (!item || item.view !== view) set(view);
+  }, [view]);
+  useEffect(() => {
+    const spans = (id: string) => {
+      const box = document.getElementById(id)?.getBoundingClientRect();
       const line = window.innerHeight * SPY_LINE_RATIO;
       return box !== undefined && box.top <= line && box.bottom > line;
     };
@@ -69,13 +85,11 @@ function useActiveNav(): [string, (key: string) => void] {
         holdUntil.current = Date.now() + SCROLL_SETTLE_MS;
         return;
       }
-      const item = ALL_NAV.find((n) => n.key === current.current);
-      if (item && item.href !== "#top" && spans(item.href)) return;
-      const next = PANEL_NAV.find((n) => spans(n.href))?.key ?? "dashboard";
-      if (next !== current.current) {
-        current.current = next;
-        setActive(next);
-      }
+      const panels = viewRef.current === "overview" ? OVERVIEW_PANELS : TECH_PANELS;
+      const item = panels.find((n) => n.key === current.current);
+      if (item && spans(item.id)) return;
+      const next = panels.find((n) => spans(n.id))?.key ?? viewRef.current;
+      if (next !== current.current) set(next);
     };
     document.addEventListener("scroll", onScroll, { passive: true });
     return () => document.removeEventListener("scroll", onScroll);
@@ -83,21 +97,31 @@ function useActiveNav(): [string, (key: string) => void] {
   return [active, select];
 }
 
-function NavLink(props: { href: string; active: boolean; onSelect: () => void; children: ComponentChildren }) {
+function NavLink(props: { item: NavDef; active: boolean; onGo: () => void; count?: number; children?: ComponentChildren }) {
+  const { item } = props;
   return (
     <a
       class={"nav-item" + (props.active ? " active" : "")}
-      href={props.href}
+      href={"#" + item.id}
       aria-current={props.active ? "location" : undefined}
-      onClick={props.onSelect}
+      onClick={(event) => {
+        event.preventDefault();
+        props.onGo();
+      }}
     >
       {props.children}
+      <span>{item.label}</span>
+      {item.count && (
+        <span class="count" id={COUNT_IDS[item.count]}>
+          {props.count}
+        </span>
+      )}
     </a>
   );
 }
 
-export function Sidebar({ searchRef, onFilter, counts, mode, modeMessage, onMode }: SidebarProps) {
-  const [active, select] = useActiveNav();
+export function Sidebar({ searchRef, onFilter, view, onNavigate, counts, mode, modeMessage, onMode }: SidebarProps) {
+  const [active, select] = useActiveNav(view);
   return (
     <aside class="sidebar" id="sidebar">
       <div class="brand">
@@ -124,30 +148,34 @@ export function Sidebar({ searchRef, onFilter, counts, mode, modeMessage, onMode
       </label>
 
       <nav class="nav" aria-label="Main">
-        {MAIN_NAV.map((n) => (
-          <NavLink key={n.key} href={n.href} active={active === n.key} onSelect={() => select(n.key)}>
-            {n.icon}
-            <span>{n.label}</span>
-            {n.count && (
-              <span class="count" id={COUNT_IDS[n.count]}>
-                {counts[n.count]}
-              </span>
-            )}
+        {VIEW_NAV.map((n) => (
+          <NavLink
+            key={n.key}
+            item={n}
+            active={active === n.key}
+            onGo={() => {
+              select(n.key);
+              onNavigate(n.view, n.id);
+            }}
+          >
+            {n.key === "overview" ? <IconDashboard /> : <IconTarget />}
           </NavLink>
         ))}
       </nav>
 
-      <div class="section-label">Panels</div>
+      <div class="section-label">{view === "overview" ? "Overview panels" : "Technical panels"}</div>
       <nav class="nav small" aria-label="Panels">
-        {PANEL_NAV.map((n) => (
-          <NavLink key={n.key} href={n.href} active={active === n.key} onSelect={() => select(n.key)}>
-            <span>{n.label}</span>
-            {n.count && (
-              <span class="count" id={COUNT_IDS[n.count]}>
-                {counts[n.count]}
-              </span>
-            )}
-          </NavLink>
+        {(view === "overview" ? OVERVIEW_PANELS : TECH_PANELS).map((n) => (
+          <NavLink
+            key={n.key}
+            item={n}
+            active={active === n.key}
+            count={n.count ? counts[n.count] : undefined}
+            onGo={() => {
+              select(n.key);
+              onNavigate(n.view, n.id);
+            }}
+          />
         ))}
       </nav>
 

@@ -7,8 +7,9 @@ import { IconPie } from "./icons";
 export function MixPanel({ stats, theme }: { stats: Stats | null; theme: Theme }) {
   const models = stats ? stats.by_model : [];
   return (
-    <Card id="panel-mix" title="Model mix" subtitle="Spend per model that served the request" icon={<IconPie />}>
+    <Card id="panel-mix" title="Model mix" subtitle="Which models your money went to" icon={<IconPie />}>
       <ChartView
+        tall
         theme={theme}
         label="Spend per model"
         empty={models.length === 0}
@@ -39,26 +40,6 @@ export function MixPanel({ stats, theme }: { stats: Stats | null; theme: Theme }
           })
         }
       />
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Model</th>
-              <th class="num">Turns</th>
-              <th class="num">Requests</th>
-            </tr>
-          </thead>
-          <tbody id="mix-body">
-            {models.map((m) => (
-              <tr key={m.model}>
-                <td>{shortModel(m.model)}</td>
-                <td class="num">{m.turns}</td>
-                <td class="num">{m.requests}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </Card>
   );
 }

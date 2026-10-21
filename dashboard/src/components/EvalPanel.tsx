@@ -1,10 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
 import * as api from "../api";
-import { pct } from "../format";
+import { pct, usd } from "../format";
 import type { EvalRunDetail, EvalRunListItem, Theme } from "../types";
 import { Card } from "./Card";
 import { ConfusionMatrix } from "./ConfusionMatrix";
-import { ArmsTable, EvalItems } from "./EvalItems";
+import { Disclosure } from "./Disclosure";
+import { ArmsExtra, ArmsTable, EvalItems } from "./EvalItems";
 import { EvalScatter } from "./EvalScatter";
 import { IconFlask } from "./icons";
 
@@ -52,7 +53,7 @@ export function EvalPanel({ runs, reload, theme }: EvalPanelProps) {
       id="panel-eval"
       wide
       title="Eval runs"
-      subtitle="Golden set answered by every arm, scored by the judge"
+      subtitle="A fixed test set answered by every model and graded by a judge, to show whether the router picks well"
       icon={<IconFlask />}
       meta={
         list.length > 0 ? (
@@ -95,41 +96,58 @@ export function EvalPanel({ runs, reload, theme }: EvalPanelProps) {
 function RunView({ detail, theme }: { detail: EvalRunDetail; theme: Theme }) {
   const { run, routing, agreement } = detail;
   const arms = detail.arms.map((a) => a.arm);
+  const router = detail.arms.find((a) => a.arm === "router");
+  const oracle = detail.arms.find((a) => a.arm === "oracle");
+  const compare =
+    router && oracle && router.mean_score !== null && oracle.mean_score !== null
+      ? `The router scored ${router.mean_score.toFixed(2)} for ${usd(router.total_cost_usd)}. The oracle (always the best model) scored ${oracle.mean_score.toFixed(2)} for ${usd(oracle.total_cost_usd)}.`
+      : null;
   return (
     <>
-      <div class="badges">
-        <span class="badge">
-          dataset <b>{run.dataset_version}</b>
-        </span>
-        <span class="badge">
-          judge <b>{run.judge_model}</b>
-        </span>
-        <span class="badge">{run.finished_at ? "finished" : "not finished"}</span>
-      </div>
-      <div class="eval-top">
-        <div class="eval-col">
-          <p class="sub-label">Quality vs cost</p>
-          <EvalScatter points={detail.quality_cost} theme={theme} />
+      <div class="kpis">
+        <div title="How often the router picked the same model tier as the golden answer">
+          <span>Routing accuracy</span>
+          <b id="eval-accuracy">{pct(routing.accuracy)}</b>
+          <span>{"over " + routing.n + " questions"}</span>
         </div>
-        <div class="eval-col">
-          <p class="sub-label">Router tier against golden tier</p>
-          <ConfusionMatrix routing={routing} />
-          <div class="kpis two">
-            <div>
-              <span>Routing accuracy</span>
-              <b id="eval-accuracy">{pct(routing.accuracy)}</b>
-            </div>
-            <div>
-              <span>Judge agreement</span>
-              <b id="eval-agreement">{pct(agreement.rate)}</b>
-              <span>{agreement.n ? "over " + agreement.n + " re-judged rows" : "no re-judged rows"}</span>
-            </div>
+        <div title="How often a second judge agreed with the first">
+          <span>Judge agreement</span>
+          <b id="eval-agreement">{pct(agreement.rate)}</b>
+          <span>{agreement.n ? "over " + agreement.n + " re-judged rows" : "no re-judged rows"}</span>
+        </div>
+        <div>
+          <span>Run</span>
+          <b class="small-b">{run.finished_at ? "finished" : "not finished"}</b>
+        </div>
+      </div>
+      {compare && <p class="sub-label">{compare}</p>}
+      <ArmsTable arms={detail.arms} />
+      <Disclosure summary="Charts" hint="quality against cost, and router tier against golden tier">
+        <div class="badges">
+          <span class="badge">
+            dataset <b>{run.dataset_version}</b>
+          </span>
+          <span class="badge">
+            judge <b>{run.judge_model}</b>
+          </span>
+        </div>
+        <div class="eval-top">
+          <div class="eval-col">
+            <p class="sub-label">Quality vs cost</p>
+            <EvalScatter points={detail.quality_cost} theme={theme} />
+          </div>
+          <div class="eval-col">
+            <p class="sub-label">Router tier against golden tier</p>
+            <ConfusionMatrix routing={routing} />
           </div>
         </div>
-      </div>
-      <ArmsTable arms={detail.arms} />
-      <p class="sub-label">Items (click a row to compare the arms' answers)</p>
-      <EvalItems items={detail.items} arms={arms} />
+        <p class="sub-label">More model statistics</p>
+        <ArmsExtra arms={detail.arms} />
+      </Disclosure>
+      <Disclosure summary="Per-question results" hint="ids such as g-0007 are test-set question ids">
+        <p class="sub-label">Click a row to compare each model's answer to that question.</p>
+        <EvalItems items={detail.items} arms={arms} />
+      </Disclosure>
     </>
   );
 }

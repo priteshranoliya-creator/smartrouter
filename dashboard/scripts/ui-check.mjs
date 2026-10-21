@@ -230,6 +230,7 @@ async function main() {
     // 4. Sidebar nav and panel anchors: the active pill follows the clicked item, and the target scrolls into view.
     const navCount = await cdp.eval(`document.querySelectorAll('.sidebar .nav-item[href^="#"]').length`);
     for (let i = 0; i < navCount; i++) {
+      if ((await cdp.eval(`document.querySelectorAll('.sidebar .nav-item[href^="#"]')[${i}].innerText.trim()`)) === "Technical details") continue;
       const label = await cdp.eval(`document.querySelectorAll('.sidebar .nav-item[href^="#"]')[${i}].innerText.split('\\n')[0].trim()`);
       const href = await cdp.eval(`document.querySelectorAll('.sidebar .nav-item[href^="#"]')[${i}].getAttribute('href')`);
       await click('.sidebar .nav-item[href^="#"]', i);
@@ -251,6 +252,36 @@ async function main() {
     }
     await cdp.eval(`window.scrollTo(0, 0)`);
 
+    // 4b. Tabs: Technical details holds the relocated panels, Overview comes back intact.
+    await click("#tab-technical");
+    await sleep(400);
+    const tech = await cdp.eval(`({ on: document.querySelector('#tab-technical').getAttribute('aria-selected'), ids: ['panel-counters', 'panel-cache', 'panel-engine', 'panel-models'].filter((id) => document.getElementById(id)), feed: !!document.getElementById('panel-feed'), nav: document.querySelector('.nav-item.active')?.innerText.trim() })`);
+    record("tabs: Technical details shows the relocated panels", tech.on === "true" && tech.ids.length === 4 && !tech.feed && tech.nav === "Technical details", JSON.stringify(tech));
+    await click('.sidebar .nav-item[href="#panel-cache"]');
+    await sleep(900);
+    record("tabs: technical sidebar item scrolls to its panel and is active", (await cdp.eval(`document.querySelector('.nav-item.active')?.innerText.split('\\n')[0].trim()`)) === "Cache health");
+    await click("#tab-overview");
+    await sleep(400);
+    const over = await cdp.eval(`({ on: document.querySelector('#tab-overview').getAttribute('aria-selected'), ids: ['panel-spend', 'panel-feed', 'panel-ledger', 'panel-mix', 'panel-quality', 'panel-eval'].filter((id) => document.getElementById(id)).length, nav: document.querySelector('.nav-item.active')?.innerText.trim() })`);
+    record("tabs: Overview restores its six panels", over.on === "true" && over.ids === 6 && over.nav === "Overview", JSON.stringify(over));
+
+    // 4c. Card toggles: technical detail on the feed, estimate columns on the ledger.
+    const feedBefore = await cdp.eval(`document.querySelectorAll('#feed .feed-row .f-meta .badge:not(.switch)').length`);
+    await click("#feed-detail");
+    const feedAfter = await cdp.eval(`({ pressed: document.querySelector('#feed-detail').getAttribute('aria-pressed'), badges: document.querySelectorAll('#feed .feed-row .f-meta .badge:not(.switch)').length, tok: document.querySelector('#feed .f-meta').innerText.includes('tok') })`);
+    record("feed: Technical detail toggle reveals rule and token detail", feedAfter.pressed === "true" && feedAfter.tok && feedAfter.badges >= feedBefore, JSON.stringify(feedAfter));
+    await click("#feed-detail");
+    const ledCols = () => cdp.eval(`document.querySelectorAll('#ledger-table thead th').length`);
+    const c0 = await ledCols();
+    if (c0 === 0 || (await cdp.eval(`document.getElementById('ledger-table').hidden`))) skip("ledger: Show estimates", "no switches in this database");
+    else {
+      await click("#ledger-estimates");
+      const c1 = await ledCols();
+      await click("#ledger-estimates");
+      record("ledger: Show estimates adds and removes the estimate columns", c1 === c0 + 2 && (await ledCols()) === c0, `columns ${c0} -> ${c1}`);
+    }
+    await cdp.eval(`window.scrollTo(0, 0)`);
+
     // 5. Eval run selector and refresh.
     await cdp.eval(`document.querySelector('#panel-eval').scrollIntoView({ block: 'start', behavior: 'instant' })`);
     await sleep(600);
@@ -258,12 +289,12 @@ async function main() {
     if (runOpts.length < 2) {
       record("eval run selector", false, `needs 2 eval runs to test, found ${runOpts.length}`);
     } else {
-      const firstTitle = await cdp.eval(`document.querySelector('#panel-eval .badges').innerText`);
+      const firstTitle = await cdp.eval(`document.querySelector('#panel-eval #eval-accuracy').innerText`);
       const target = runOpts[1];
       await cdp.eval(`(() => { const s = document.querySelector('#eval-run'); s.value = ${JSON.stringify(target)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
       const t0 = await cdp.eval(`({ v: document.querySelector('#eval-run').value, loading: !!document.querySelector('#panel-eval .empty:not([hidden])') })`);
       await sleep(900);
-      const settled = await cdp.eval(`({ v: document.querySelector('#eval-run').value, badges: document.querySelector('#panel-eval .badges')?.innerText, rows: document.querySelectorAll('#panel-eval table.items tbody tr').length })`);
+      const settled = await cdp.eval(`({ v: document.querySelector('#eval-run').value, badges: document.querySelector('#panel-eval #eval-accuracy')?.innerText, rows: document.querySelectorAll('#panel-eval table.arms tbody tr').length })`);
       record("eval run selector: switches run and renders it", t0.v === target && settled.v === target && !!settled.badges, `value ${t0.v}->${settled.v}, badges "${settled.badges?.replace(/\n/g, " ")}" (was "${firstTitle.replace(/\n/g, " ")}")`);
       await cdp.eval(`(() => { const s = document.querySelector('#eval-run'); s.value = ${JSON.stringify(runOpts[0])}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
       await sleep(900);
@@ -272,10 +303,15 @@ async function main() {
     await cdp.eval(`window.__fetches = 0; const f = window.fetch; window.fetch = (...a) => { window.__fetches++; return f(...a); };`);
     await click('#panel-eval .icon-btn.small');
     await sleep(700);
-    const refreshed = await cdp.eval(`({ n: window.__fetches, h: document.querySelector('#panel-eval').getBoundingClientRect().height, body: !!document.querySelector('#panel-eval table.items') })`);
+    const refreshed = await cdp.eval(`({ n: window.__fetches, h: document.querySelector('#panel-eval').getBoundingClientRect().height, body: !!document.querySelector('#panel-eval table.arms') })`);
     record("eval refresh: refetches without collapsing the panel", refreshed.n >= 2 && Math.abs(refreshed.h - hBefore) < 4 && refreshed.body, `fetches=${refreshed.n} height ${Math.round(hBefore)}->${Math.round(refreshed.h)}`);
 
-    // 6. Eval item rows: the button and the whole row toggle, collapse restores.
+    // 6. Eval item rows: the button and the whole row toggle, collapse restores. Rows live in a collapsed disclosure.
+    const discState = () => cdp.eval(`[...document.querySelectorAll('#panel-eval .disc-btn')].map((b) => b.getAttribute('aria-expanded'))`);
+    const discBefore = await discState();
+    record("eval: Charts and Per-question results start collapsed", discBefore.length === 2 && discBefore.every((v) => v === "false") && !(await cdp.eval(`!!document.querySelector('#panel-eval table.items')`)), JSON.stringify(discBefore));
+    await click('#panel-eval .disc-btn', 1);
+    await sleep(200);
     const toggleIds = await cdp.eval(`document.querySelectorAll('#panel-eval .row-toggle').length`);
     if (!toggleIds) {
       record("eval item row expand/collapse", false, "no item rows rendered");
@@ -345,6 +381,8 @@ async function main() {
     // 8. Eval scatter: router and oracle labels must not overlap.
     await cdp.eval(`document.querySelector('#panel-eval').scrollIntoView({ block: 'start', behavior: 'instant' })`);
     await sleep(300);
+    await click('#panel-eval .disc-btn', 0);
+    await sleep(500);
     const labels = await cdp.eval(`(() => { const raw = document.querySelector('#panel-eval canvas')?.dataset.labelBoxes; return raw ? JSON.parse(raw) : null; })()`);
     if (labels === null) {
       record("eval scatter: arm labels do not overlap", false, "canvas has no data-label-boxes, so label placement cannot be checked");
@@ -360,15 +398,16 @@ async function main() {
     }
 
     // 9. Keyboard focus visibility on every control.
-    const focusProbe = await cdp.eval(`(() => { const out = []; for (const sel of ['#window-switch button', '#mode-switch button:not(:disabled)', '#theme-toggle', '.nav-item', '#eval-run', '#panel-eval .icon-btn.small', '#panel-eval .row-toggle', '#search']) { const el = document.querySelector(sel); if (!el) continue; el.focus({ focusVisible: true }); const s = getComputedStyle(el); const ring = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0; const field = el.id === 'search' ? getComputedStyle(el.closest('label')).borderColor : null; out.push({ sel, ring, field, shown: el.matches(':focus-visible') }); } return out; })()`);
+    const focusProbe = await cdp.eval(`(() => { const out = []; for (const sel of ['#window-switch button', '#mode-switch button:not(:disabled)', '#theme-toggle', '.nav-item', '#eval-run', '#panel-eval .icon-btn.small', '#panel-eval .row-toggle', '#search', '#tab-overview', '#feed-detail', '.disc-btn']) { const el = document.querySelector(sel); if (!el) continue; el.focus({ focusVisible: true }); const s = getComputedStyle(el); const ring = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0; const field = el.id === 'search' ? getComputedStyle(el.closest('label')).borderColor : null; out.push({ sel, ring, field, shown: el.matches(':focus-visible') }); } return out; })()`);
     const noRing = focusProbe.filter((p) => !p.ring && p.sel !== "#search" && p.sel !== "#eval-run");
     record("keyboard focus: every button and link shows a focus ring", noRing.length === 0, noRing.map((p) => p.sel).join(", "));
 
     // 10. Phone width: nothing overflows horizontally.
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 500, height: 900, deviceScaleFactor: 1, mobile: false });
     await sleep(400);
-    const wrap = await cdp.eval(`new Promise((resolve) => { const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;inset:0;width:390px;height:900px;border:0;z-index:99;background:#fff'; f.src = '/'; document.body.appendChild(f); f.onload = () => setTimeout(() => { const d = f.contentDocument; resolve({ sw: d.documentElement.scrollWidth, cw: d.documentElement.clientWidth }); }, 1500); })`);
+    const wrap = await cdp.eval(`new Promise((resolve) => { const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;inset:0;width:390px;height:900px;border:0;z-index:99;background:#fff'; f.src = '/'; document.body.appendChild(f); f.onload = () => setTimeout(() => { const d = f.contentDocument; const vis = (q) => { const e = d.querySelector(q); const r = e && e.getBoundingClientRect(); return !!r && r.width > 0 && r.right <= 391 && r.left >= 0; }; resolve({ sw: d.documentElement.scrollWidth, cw: d.documentElement.clientWidth, mode: vis('#mode-switch'), search: vis('#search'), tabs: vis('#tab-technical') }); }, 1500); })`);
     record("phone 390px: no horizontal page scroll", wrap.sw <= wrap.cw + 1, `scrollWidth ${wrap.sw} vs ${wrap.cw}`);
+    record("phone 390px: mode switch, search and tabs stay reachable", wrap.mode && wrap.search && wrap.tabs, JSON.stringify(wrap));
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
 
     const errs = cdp.logs.filter((l) => !/fonts\.g(oogleapis|static)\.com|ERR_(INTERNET_DISCONNECTED|NAME_NOT_RESOLVED|BLOCKED)/.test(l));

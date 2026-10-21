@@ -1,6 +1,7 @@
 // Response shapes of the Python API (api/dashboard.py, telemetry/stats.py, eval/report.py).
 
 export type Mode = "off" | "shadow" | "active";
+export type View = "overview" | "technical";
 export type WindowName = "15m" | "1h" | "24h" | "7d" | "all";
 export type Theme = "dark" | "light";
 

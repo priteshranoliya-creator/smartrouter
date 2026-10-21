@@ -141,13 +141,10 @@ export function ArmsTable({ arms }: { arms: ArmSummary[] }) {
       <table class="arms">
         <thead>
           <tr>
-            <th>Arm</th>
-            <th class="num">n</th>
-            <th class="num">Score</th>
-            <th class="num">Pass</th>
+            <th>Model</th>
+            <th class="num" title="Mean judge score, 0 to 1">Score</th>
+            <th class="num" title="Share of questions the judge passed">Pass</th>
             <th class="num">Total cost</th>
-            <th class="num">Mean cost</th>
-            <th class="num">Latency</th>
             <th class="num">Errors</th>
           </tr>
         </thead>
@@ -155,13 +152,37 @@ export function ArmsTable({ arms }: { arms: ArmSummary[] }) {
           {arms.map((a) => (
             <tr key={a.arm}>
               <td>{a.arm}</td>
-              <td class="num">{a.n}</td>
               <td class="num">{a.mean_score === null ? "n/a" : a.mean_score.toFixed(2)}</td>
               <td class="num">{pct(a.pass_rate)}</td>
               <td class="num">{usd(a.total_cost_usd)}</td>
+              <td class={"num" + (a.errors ? " neg" : "")}>{a.errors}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ArmsExtra({ arms }: { arms: ArmSummary[] }) {
+  return (
+    <div class="table-wrap">
+      <table class="arms-extra">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th class="num">Questions</th>
+            <th class="num">Mean cost</th>
+            <th class="num">Mean latency</th>
+          </tr>
+        </thead>
+        <tbody>
+          {arms.map((a) => (
+            <tr key={a.arm}>
+              <td>{a.arm}</td>
+              <td class="num">{a.n}</td>
               <td class="num">{usd(a.mean_cost_usd)}</td>
               <td class="num">{ms(a.mean_latency_ms)}</td>
-              <td class={"num" + (a.errors ? " neg" : "")}>{a.errors}</td>
             </tr>
           ))}
         </tbody>

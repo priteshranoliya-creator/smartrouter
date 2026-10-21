@@ -1,16 +1,16 @@
 import type { JSX } from "preact";
 import { pct, usd } from "../format";
 import type { Mode, Stats } from "../types";
-import { IconActivity, IconDatabase, IconMessage, IconSwitch, IconTimer, IconUser } from "./icons";
+import { IconActivity, IconMessage, IconSwitch, IconTimer } from "./icons";
 
 interface HeroProps {
   stats: Stats | null;
   mode: Mode | null;
-  engine: string | null;
 }
 
 function headline(s: Stats | null, mode: Mode | null): [string, string] {
-  if (!s || !s.requests) return ["Waiting for the first routed turn", ""];
+  if (!s) return ["Loading", " "];
+  if (!s.requests) return ["Waiting for the first routed turn", " "];
   if (mode === "off") return ["Routing is off", "recording " + usd(s.without_router_usd) + " of Claude Code traffic"];
   const active = mode === "active";
   const verb = s.saving_usd >= 0 ? (active ? "saved " : "would have saved ") : active ? "cost " : "would have cost ";
@@ -18,7 +18,7 @@ function headline(s: Stats | null, mode: Mode | null): [string, string] {
   return ["Routing " + verb + amount, "on " + usd(s.without_router_usd) + " of Claude Code traffic"];
 }
 
-export function Hero({ stats, mode, engine }: HeroProps) {
+export function Hero({ stats, mode }: HeroProps) {
   const [first, second] = headline(stats, mode);
   const label = mode || "unknown";
   const behaviour =
@@ -27,19 +27,16 @@ export function Hero({ stats, mode, engine }: HeroProps) {
       : label === "off"
         ? " passes every request straight through."
         : " records what the router would do and never changes a request.";
-  const tiles: [string, string, string | number, string][] = [
-    ["tile-sessions", "Sessions", stats ? stats.sessions : 0, "user"],
-    ["tile-turns", "Turns", stats ? stats.turns : 0, "message"],
-    ["tile-requests", "Requests", stats ? stats.requests : 0, "activity"],
-    ["tile-cache", "Cache hit", stats ? pct(stats.cache_hit_ratio) : "0%", "database"],
-    ["tile-switches", "Switches", stats ? stats.switches : 0, "switch"],
-    ["tile-timeouts", "Timeouts", stats ? stats.timeouts : 0, "timer"],
+  const savingPct = stats && stats.without_router_usd > 0 ? pct(stats.saving_usd / stats.without_router_usd).replace(/^-0%$/, "0%") : "n/a";
+  const tiles: [string, string, string | number, string, string][] = [
+    ["tile-turns", "Turns", stats ? stats.turns : 0, "message", "Prompts you sent to Claude Code in this window"],
+    ["tile-saving", "Saving", savingPct, "activity", "Share of the without-router cost that routing would save"],
+    ["tile-switches", "Switches", stats ? stats.switches : 0, "switch", "Turns where the router would pick a different model than the one that ran"],
+    ["tile-timeouts", "Timeouts", stats ? stats.timeouts : 0, "timer", "Times the decision engine took too long and the router fell back. Engine failures are counted separately under Decision quality"],
   ];
   const icons: Record<string, JSX.Element> = {
-    user: <IconUser />,
     message: <IconMessage />,
     activity: <IconActivity />,
-    database: <IconDatabase />,
     switch: <IconSwitch />,
     timer: <IconTimer />,
   };
@@ -52,13 +49,13 @@ export function Hero({ stats, mode, engine }: HeroProps) {
         </h1>
         <p id="hero-sub" class="lede">
           <b>{label + " mode"}</b>
-          {behaviour + (engine ? " Engine " + engine + "." : "") + " "}
+          {behaviour + " "}
           <b>Prompts never leave this machine except to the decision engine.</b>
         </p>
       </div>
       <div class="tiles" id="tiles">
-        {tiles.map(([id, name, value, icon]) => (
-          <div class="tile">
+        {tiles.map(([id, name, value, icon, tip]) => (
+          <div class="tile" key={id} title={tip}>
             {icons[icon]}
             <div>
               <b id={id}>{value}</b>

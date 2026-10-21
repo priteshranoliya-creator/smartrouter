@@ -9,7 +9,7 @@ export function CachePanel({ stats, theme }: { stats: Stats | null; theme: Theme
   const series = stats ? stats.timeseries : [];
   const hourly = isHourly(stats ? stats.window : "all");
   return (
-    <Card id="panel-cache" title="Cache health" subtitle="Prompt cache reads and writes" icon={<IconDatabase />}>
+    <Card id="panel-cache" title="Cache health" subtitle="How often Claude reused earlier text instead of re-reading it, which keeps cost down" icon={<IconDatabase />}>
       <p class="sub-label">Cache hit ratio per model</p>
       <ChartView
         theme={theme}

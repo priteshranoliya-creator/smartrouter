@@ -11,7 +11,7 @@ export function SpendPanel({ stats, theme }: { stats: Stats | null; theme: Theme
       id="panel-spend"
       highlight
       title="Spend vs baseline"
-      subtitle="Cumulative cost with and without routing"
+      subtitle="What you paid with the router, against what the same work costs on your usual model"
       icon={<IconTrend />}
       meta={
         <span class="card-meta" id="spend-saving">

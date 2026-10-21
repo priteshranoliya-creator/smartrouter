@@ -1,20 +1,39 @@
-import type { Theme, WindowName } from "../types";
+import type { Theme, View, WindowName } from "../types";
 import { IconMoon, IconSun } from "./icons";
 
 export const WINDOWS: WindowName[] = ["15m", "1h", "24h", "7d", "all"];
+const VIEWS: [View, string][] = [
+  ["overview", "Overview"],
+  ["technical", "Technical details"],
+];
 
 interface TopbarProps {
   live: boolean;
   window: WindowName;
   onWindow: (window: WindowName) => void;
+  view: View;
+  onView: (view: View) => void;
   theme: Theme;
   onToggleTheme: () => void;
 }
 
-export function Topbar({ live, window, onWindow, onToggleTheme }: TopbarProps) {
+export function Topbar({ live, window, onWindow, view, onView, onToggleTheme }: TopbarProps) {
   return (
     <header class="topbar">
-      <h2>Dashboard</h2>
+      <div class="tabs" role="tablist" aria-label="Dashboard view">
+        {VIEWS.map(([key, label]) => (
+          <button
+            type="button"
+            role="tab"
+            id={"tab-" + key}
+            class={"tab" + (view === key ? " on" : "")}
+            aria-selected={view === key}
+            onClick={() => onView(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div class="topbar-right">
         <span class={"live" + (live ? "" : " off")} id="live" title={live ? "Stream connected" : "Stream disconnected"}>
           <i></i>
