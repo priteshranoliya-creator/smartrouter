@@ -54,6 +54,30 @@ const COUNT_IDS: Record<string, string> = {
 };
 const SPY_LINE_RATIO = 0.3;
 const SCROLL_SETTLE_MS = 150;
+const BOTTOM_SLACK_PX = 2;
+
+/**
+ * The panel the spy line has reached last, in page order. A gap between cards keeps the previous panel
+ * (the last one whose top is above the line), the last panel wins at the bottom of the page, and the
+ * view's own item is only active at the very top.
+ */
+function spyPanel(panels: NavDef[], viewKey: string): string {
+  if (window.scrollY <= 0) return viewKey;
+  const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - BOTTOM_SLACK_PX;
+  if (atBottom && panels.length > 0) return panels[panels.length - 1]!.key;
+  const line = window.innerHeight * SPY_LINE_RATIO;
+  // The lowest row that reached the line; in a two-card row the left card (first in page order) wins.
+  let reached: string | null = null;
+  let reachedTop = -Infinity;
+  for (const n of panels) {
+    const box = document.getElementById(n.id)?.getBoundingClientRect();
+    if (box !== undefined && box.top <= line && box.top > reachedTop + 1) {
+      reached = n.key;
+      reachedTop = box.top;
+    }
+  }
+  return reached ?? panels[0]?.key ?? viewKey;
+}
 
 /** The nav item whose section is under the sticky bar. Clicking selects at once, scrolling follows the page. */
 function useActiveNav(view: View): [string, (key: string) => void] {
@@ -75,20 +99,14 @@ function useActiveNav(view: View): [string, (key: string) => void] {
     if (!item || item.view !== view) set(view);
   }, [view]);
   useEffect(() => {
-    const spans = (id: string) => {
-      const box = document.getElementById(id)?.getBoundingClientRect();
-      const line = window.innerHeight * SPY_LINE_RATIO;
-      return box !== undefined && box.top <= line && box.bottom > line;
-    };
     const onScroll = () => {
+      if (viewRef.current === "changelog") return;
       if (Date.now() < holdUntil.current) {
         holdUntil.current = Date.now() + SCROLL_SETTLE_MS;
         return;
       }
       const panels = viewRef.current === "overview" ? OVERVIEW_PANELS : TECH_PANELS;
-      const item = panels.find((n) => n.key === current.current);
-      if (item && spans(item.id)) return;
-      const next = panels.find((n) => spans(n.id))?.key ?? viewRef.current;
+      const next = spyPanel(panels, viewRef.current);
       if (next !== current.current) set(next);
     };
     document.addEventListener("scroll", onScroll, { passive: true });
@@ -163,21 +181,25 @@ export function Sidebar({ searchRef, onFilter, view, onNavigate, counts, mode, m
         ))}
       </nav>
 
-      <div class="section-label">{view === "overview" ? "Overview panels" : "Technical panels"}</div>
-      <nav class="nav small" aria-label="Panels">
-        {(view === "overview" ? OVERVIEW_PANELS : TECH_PANELS).map((n) => (
-          <NavLink
-            key={n.key}
-            item={n}
-            active={active === n.key}
-            count={n.count ? counts[n.count] : undefined}
-            onGo={() => {
-              select(n.key);
-              onNavigate(n.view, n.id);
-            }}
-          />
-        ))}
-      </nav>
+      {view !== "changelog" && (
+        <>
+          <div class="section-label">{view === "overview" ? "Overview panels" : "Technical panels"}</div>
+          <nav class="nav small" aria-label="Panels">
+            {(view === "overview" ? OVERVIEW_PANELS : TECH_PANELS).map((n) => (
+              <NavLink
+                key={n.key}
+                item={n}
+                active={active === n.key}
+                count={n.count ? counts[n.count] : undefined}
+                onGo={() => {
+                  select(n.key);
+                  onNavigate(n.view, n.id);
+                }}
+              />
+            ))}
+          </nav>
+        </>
+      )}
 
       <div class="section-label">Resources</div>
       <nav class="nav small" aria-label="Resources">
@@ -192,6 +214,15 @@ export function Sidebar({ searchRef, onFilter, view, onNavigate, counts, mode, m
         >
           <span>Design changes</span>
         </a>
+        <button
+          type="button"
+          class={"nav-item" + (view === "changelog" ? " active" : "")}
+          id="nav-changelog"
+          aria-current={view === "changelog" ? "location" : undefined}
+          onClick={() => onNavigate("changelog", "top")}
+        >
+          <span>Changelog</span>
+        </button>
       </nav>
 
       <div class="sidebar-foot">

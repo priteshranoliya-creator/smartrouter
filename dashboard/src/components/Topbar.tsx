@@ -39,13 +39,15 @@ export function Topbar({ live, window, onWindow, view, onView, onToggleTheme }: 
           <i></i>
           <span id="live-label">{live ? "live" : "offline"}</span>
         </span>
-        <div class="segmented compact" id="window-switch" role="group" aria-label="Time window">
-          {WINDOWS.map((w) => (
-            <button type="button" data-window={w} class={w === window ? "on" : ""} aria-pressed={w === window} onClick={() => onWindow(w)}>
-              {w}
-            </button>
-          ))}
-        </div>
+        {view !== "changelog" && (
+          <div class="segmented compact" id="window-switch" role="group" aria-label="Time window">
+            {WINDOWS.map((w) => (
+              <button type="button" data-window={w} class={w === window ? "on" : ""} aria-pressed={w === window} onClick={() => onWindow(w)}>
+                {w}
+              </button>
+            ))}
+          </div>
+        )}
         <button type="button" class="icon-btn" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme" onClick={onToggleTheme}>
           <IconSun />
           <IconMoon />

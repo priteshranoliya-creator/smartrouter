@@ -148,7 +148,8 @@ async function main() {
     const checkSegmented = async (name, sel, i, expectedOn) => {
       const tokens = await cdp.eval(`window.__tokens()`);
       const same = await cdp.eval(pick(sel, i));
-      const groupBox = `(() => { const r = document.querySelectorAll(${JSON.stringify(sel)})[${i}].parentElement.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map((v) => Math.round(v * 10) / 10).join(); })()`;
+      // Whole pixels: clicking scrolls the control into view again, so the box can differ by a fraction of a pixel between reads.
+      const groupBox = `(() => { const r = document.querySelectorAll(${JSON.stringify(sel)})[${i}].parentElement.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map((v) => Math.round(v)).join(); })()`;
       const boxBefore = await cdp.eval(groupBox);
       await click(sel, i);
       const t0 = await cdp.eval(pick(sel, i));
@@ -282,6 +283,161 @@ async function main() {
     }
     await cdp.eval(`window.scrollTo(0, 0)`);
 
+    // Text contrast scan of the page as it is now, against the nearest painted background. Returns the low-contrast runs.
+    const CONTRAST_SCAN = `(() => {
+      const bad = new Map();
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+        if (!t.textContent.trim()) continue;
+        const el = t.parentElement;
+        const s = getComputedStyle(el);
+        if (s.visibility === 'hidden' || s.display === 'none' || el.closest('[hidden], canvas, script, style') || el.closest('button:disabled')) continue;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        const large = parseFloat(s.fontSize) >= 24 || (parseFloat(s.fontSize) >= 18.66 && Number(s.fontWeight) >= 700);
+        const need = large ? 3 : 4.5;
+        const eff = window.__effective(el);
+        const ratio = window.__ratio(eff.fg, eff.bg);
+        if (ratio < need) { const k = el.className + '|' + eff.fg + '|' + eff.bg; if (!bad.has(k)) bad.set(k, { cls: (el.className || el.tagName).toString().slice(0, 40), ratio: +ratio.toFixed(2), color: eff.fg + ' on ' + eff.bg }); }
+      }
+      return [...bad.values()];
+    })()`;
+
+    // 4d. Changelog: the Resources item opens it, entries and filters work, and Overview comes back.
+    await click("#nav-changelog");
+    await sleep(400);
+    const clInfo = await cdp.eval(`({
+      title: document.querySelector('.page-intro h1')?.innerText ?? null,
+      navActive: !!document.querySelector('#nav-changelog.active'),
+      navCurrent: document.querySelector('#nav-changelog')?.getAttribute('aria-current') ?? null,
+      sidebarActive: [...document.querySelectorAll('.sidebar .nav-item.active')].map((e) => e.innerText.split('\\n')[0].trim()),
+      panelsGone: !document.querySelector('nav[aria-label="Panels"]'),
+      about: document.querySelector('.about h2')?.innerText ?? null,
+      flow: document.querySelectorAll('.flow .flow-node').length,
+      entries: document.querySelectorAll('.tl-item').length,
+      dated: [...document.querySelectorAll('.tl-item .tl-date')].filter((d) => d.innerText.trim()).length,
+      analogies: [...document.querySelectorAll('.tl-item .tl-analogy')].filter((p) => p.innerText.trim()).length,
+      tags: [...document.querySelectorAll('.tl-item .tl-meta .badge:first-child')].map((b) => b.innerText.trim()),
+    })`);
+    const clTotal = clInfo.entries;
+    const tagNames = ["Feature", "Decision", "Fix", "Design"];
+    record(
+      "changelog: sidebar item opens the changelog",
+      clInfo.title === "Changelog" && clInfo.navActive && clInfo.navCurrent === "location" && clInfo.sidebarActive.join() === "Changelog" && clInfo.panelsGone,
+      JSON.stringify({ title: clInfo.title, sidebarActive: clInfo.sidebarActive, navCurrent: clInfo.navCurrent, panelsGone: clInfo.panelsGone }),
+    );
+    record("changelog: intro card explains smartrouter with the request path", clInfo.about === "What is smartrouter?" && clInfo.flow === 3, `about=${clInfo.about} flow=${clInfo.flow}`);
+    record(
+      "changelog: entries render with date, tag and analogy",
+      clTotal >= 12 && clInfo.dated === clTotal && clInfo.analogies === clTotal && clInfo.tags.length === clTotal && clInfo.tags.every((t) => tagNames.includes(t)),
+      `entries=${clTotal} dated=${clInfo.dated} analogies=${clInfo.analogies} tags=${clInfo.tags.length}`,
+    );
+    for (const f of ["feature", "decision", "fix", "design"]) {
+      const name = f[0].toUpperCase() + f.slice(1);
+      await click("#chip-" + f);
+      await sleep(120);
+      const shown = await cdp.eval(`[...document.querySelectorAll('.tl-item .tl-meta .badge:first-child')].map((b) => b.innerText.trim())`);
+      const want = clInfo.tags.filter((t) => t === name).length;
+      const pressed = await cdp.eval(`document.getElementById('chip-${f}').getAttribute('aria-pressed')`);
+      record(
+        `changelog filter: ${name} shows only ${name} entries`,
+        want > 0 && shown.length === want && shown.every((t) => t === name) && pressed === "true",
+        `shown ${shown.length} of ${clTotal}, expected ${want}, aria-pressed=${pressed}`,
+      );
+    }
+    await click("#chip-all");
+    await sleep(120);
+    const clBack = await cdp.eval(`document.querySelectorAll('.tl-item').length`);
+    record("changelog filter: All restores every entry", clBack === clTotal, `${clBack} of ${clTotal}`);
+    for (const theme of ["dark", "light"]) {
+      await cdp.eval(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+      await sleep(250);
+      const low = await cdp.eval(CONTRAST_SCAN);
+      record(`changelog contrast: all text readable in ${theme} theme`, low.length === 0, low.map((l) => `.${l.cls} ${l.color} ${l.ratio}:1`).join("; "));
+    }
+    await cdp.eval(`document.documentElement.dataset.theme = ${JSON.stringify(startTheme)}`);
+    await sleep(250);
+    await click("#tab-overview");
+    await sleep(400);
+    const overBack = await cdp.eval(`({
+      on: document.querySelector('#tab-overview').getAttribute('aria-selected'),
+      panels: !!document.getElementById('panel-spend') && !!document.getElementById('panel-feed'),
+      nav: [...document.querySelectorAll('.sidebar .nav-item.active')].map((e) => e.innerText.split('\\n')[0].trim()),
+    })`);
+    record(
+      "changelog: Overview tab returns to the overview",
+      overBack.on === "true" && overBack.panels && overBack.nav.join() === "Overview",
+      JSON.stringify(overBack),
+    );
+
+    // 4e. Scroll spy: real wheel events in 40px steps, down to the bottom and back up, at two window heights.
+    const SPY_ORDER = {
+      overview: ["Overview", "Spend vs baseline", "Live turn feed", "Switch ledger", "Model mix", "Decision quality", "Eval runs"],
+      technical: ["Technical details", "Raw counters", "Per-model counts", "Cache health", "Decision engine detail"],
+    };
+    const spyNow = () =>
+      cdp.eval(`(() => {
+        const label = (el) => [...el.querySelectorAll('span')].find((s) => !s.classList.contains('count')).textContent.trim();
+        const panel = document.querySelector('nav[aria-label="Panels"] .nav-item.active');
+        const main = document.querySelector('nav[aria-label="Main"] .nav-item.active');
+        return { label: panel ? label(panel) : main ? label(main) : null, y: Math.round(window.scrollY), max: document.documentElement.scrollHeight - window.innerHeight };
+      })()`);
+    const wheel = (deltaY) => cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 700, y: 500, deltaX: 0, deltaY });
+    const walk = async (dir) => {
+      const path = [];
+      for (let n = 0; n < 400; n++) {
+        const s = await spyNow();
+        path.push(s);
+        if (dir > 0 ? s.y >= s.max - 1 : s.y <= 0) break;
+        await wheel(dir * 40);
+        await sleep(120);
+      }
+      return path;
+    };
+    const runSpy = async (name, order, height) => {
+      await cdp.eval(`window.scrollTo({ top: 0, behavior: 'instant' })`);
+      await sleep(300);
+      const down = await walk(1);
+      const up = await walk(-1);
+      const problems = [];
+      const rank = (s) => order.indexOf(s.label);
+      const check = (path, dir) => {
+        for (let i = 1; i < path.length; i++) {
+          const a = rank(path[i - 1]);
+          const b = rank(path[i]);
+          if (a < 0 || b < 0) problems.push(`unknown label near ${path[i].y}px (${path[i].label})`);
+          else if (dir > 0 && b < a) problems.push(`down ${order[a]} -> ${order[b]} at ${path[i].y}px`);
+          else if (dir < 0 && b > a) problems.push(`up ${order[a]} -> ${order[b]} at ${path[i].y}px`);
+        }
+      };
+      check(down, 1);
+      check(up, -1);
+      const stray = [...down, ...up].filter((s) => s.label === order[0] && s.y > 0);
+      if (stray.length) problems.push(`"${order[0]}" active away from the top at ${stray.map((s) => s.y + "px").join(", ")}`);
+      const endDown = down[down.length - 1];
+      const endUp = up[up.length - 1];
+      if (endDown.label !== order[order.length - 1]) problems.push(`bottom shows ${endDown.label}, not ${order[order.length - 1]}`);
+      if (endUp.label !== order[0] || endUp.y !== 0) problems.push(`top shows ${endUp.label} at ${endUp.y}px`);
+      const seq = (path) => path.map((s) => s.label).filter((l, i, a) => i === 0 || l !== a[i - 1]);
+      record(
+        `scroll spy ${name} at 1440x${height}: monotonic down and back up`,
+        problems.length === 0,
+        problems.length ? problems.slice(0, 4).join("; ") : `down ${seq(down).join(" > ")} | up ${seq(up).join(" > ")}`,
+      );
+    };
+    for (const height of [900, 700]) {
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height, deviceScaleFactor: 1, mobile: false });
+      await sleep(400);
+      await runSpy("overview", SPY_ORDER.overview, height);
+      await click("#tab-technical");
+      await sleep(400);
+      await runSpy("technical", SPY_ORDER.technical, height);
+      await click("#tab-overview");
+      await sleep(400);
+    }
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+    await sleep(300);
+
     // 5. Eval run selector and refresh.
     await cdp.eval(`document.querySelector('#panel-eval').scrollIntoView({ block: 'start', behavior: 'instant' })`);
     await sleep(600);
@@ -355,24 +511,7 @@ async function main() {
     for (const theme of ["dark", "light"]) {
       await cdp.eval(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
       await sleep(250);
-      const low = await cdp.eval(`(() => {
-        const bad = new Map();
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        for (let t = walker.nextNode(); t; t = walker.nextNode()) {
-          if (!t.textContent.trim()) continue;
-          const el = t.parentElement;
-          const s = getComputedStyle(el);
-          if (s.visibility === 'hidden' || s.display === 'none' || el.closest('[hidden], canvas, script, style') || el.closest('button:disabled')) continue;
-          const r = el.getBoundingClientRect();
-          if (!r.width || !r.height) continue;
-          const large = parseFloat(s.fontSize) >= 24 || (parseFloat(s.fontSize) >= 18.66 && Number(s.fontWeight) >= 700);
-          const need = large ? 3 : 4.5;
-          const eff = window.__effective(el);
-          const ratio = window.__ratio(eff.fg, eff.bg);
-          if (ratio < need) { const k = el.className + '|' + eff.fg + '|' + eff.bg; if (!bad.has(k)) bad.set(k, { cls: (el.className || el.tagName).toString().slice(0, 40), ratio: +ratio.toFixed(2), color: eff.fg + ' on ' + eff.bg }); }
-        }
-        return [...bad.values()];
-      })()`);
+      const low = await cdp.eval(CONTRAST_SCAN);
       record(`contrast: all text readable in ${theme} theme`, low.length === 0, low.map((l) => `.${l.cls} ${l.color} ${l.ratio}:1`).join("; "));
     }
     await cdp.eval(`document.documentElement.dataset.theme = ${JSON.stringify(startTheme2)}`);
@@ -408,6 +547,8 @@ async function main() {
     const wrap = await cdp.eval(`new Promise((resolve) => { const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;inset:0;width:390px;height:900px;border:0;z-index:99;background:#fff'; f.src = '/'; document.body.appendChild(f); f.onload = () => setTimeout(() => { const d = f.contentDocument; const vis = (q) => { const e = d.querySelector(q); const r = e && e.getBoundingClientRect(); return !!r && r.width > 0 && r.right <= 391 && r.left >= 0; }; resolve({ sw: d.documentElement.scrollWidth, cw: d.documentElement.clientWidth, mode: vis('#mode-switch'), search: vis('#search'), tabs: vis('#tab-technical') }); }, 1500); })`);
     record("phone 390px: no horizontal page scroll", wrap.sw <= wrap.cw + 1, `scrollWidth ${wrap.sw} vs ${wrap.cw}`);
     record("phone 390px: mode switch, search and tabs stay reachable", wrap.mode && wrap.search && wrap.tabs, JSON.stringify(wrap));
+    const phoneCl = await cdp.eval(`new Promise((resolve) => { const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;inset:0;width:390px;height:900px;border:0;z-index:100;background:#fff'; f.src = '/'; document.body.appendChild(f); f.onload = () => setTimeout(() => { const d = f.contentDocument; d.getElementById('nav-changelog').click(); setTimeout(() => { const cw = d.documentElement.clientWidth; const items = [...d.querySelectorAll('.tl-item')]; const stacked = items.length > 0 && items.every((li) => { const date = li.querySelector('.tl-date').getBoundingClientRect(); const card = li.querySelector('.tl-card').getBoundingClientRect(); return date.bottom <= card.top + 1 && card.left >= 0 && card.right <= cw + 1; }); const chips = [...d.querySelectorAll('.chip-row .chip-btn')].every((c) => c.getBoundingClientRect().right <= cw + 1); resolve({ sw: d.documentElement.scrollWidth, cw, items: items.length, stacked, chips, title: d.querySelector('.page-intro h1')?.innerText ?? null }); }, 700); }, 1500); })`);
+    record("phone 390px: changelog has no horizontal scroll and dates sit above entries", phoneCl.sw <= phoneCl.cw + 1 && phoneCl.stacked && phoneCl.chips && phoneCl.title === "Changelog", JSON.stringify(phoneCl));
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
 
     const errs = cdp.logs.filter((l) => !/fonts\.g(oogleapis|static)\.com|ERR_(INTERNET_DISCONNECTED|NAME_NOT_RESOLVED|BLOCKED)/.test(l));

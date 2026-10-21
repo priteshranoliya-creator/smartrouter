@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { CachePanel } from "./components/CachePanel";
+import { Changelog } from "./components/Changelog";
 import { EvalPanel } from "./components/EvalPanel";
 import { FeedPanel, visibleFeed } from "./components/FeedPanel";
 import type { FeedItem } from "./components/FeedPanel";
@@ -82,7 +83,9 @@ export function App() {
       <div class="main" id="top">
         <Topbar live={live} window={windowName} onWindow={setWindowName} view={view} onView={(v) => navigate(v, "top")} theme={theme} onToggleTheme={toggleTheme} />
         <main class="content">
-          {stats === null ? (
+          {view === "changelog" ? (
+            <Changelog />
+          ) : stats === null ? (
             <p class="empty page-loading">Loading</p>
           ) : view === "overview" ? (
             <>
